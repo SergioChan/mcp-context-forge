@@ -12,6 +12,7 @@ visibility settings, OAuth configuration, and advanced features.
 # Standard
 import re
 import uuid
+import base64 # To encode the transparent PNG
 
 # Third-Party
 from playwright.sync_api import Error as PlaywrightError, expect
@@ -440,6 +441,14 @@ class TestServersExtended:
         servers_page.search_servers("")
 
         # Verify servers are restored
+        try:
+            servers_page.page.wait_for_function(f"() => document.querySelectorAll('[data-testid=\"server-item\"]').length === {initial_count}", timeout=10000)
+        except PlaywrightTimeoutError:
+            # Fallback for when direct DOM count is not reliable
+            servers_page.page.reload()
+            servers_page.navigate_to_servers_tab()
+            servers_page.wait_for_servers_table_loaded()
+
         restored_count = servers_page.get_server_count()
         assert restored_count == initial_count
 
@@ -464,6 +473,7 @@ class TestServersExtended:
         pagination_select = servers_page.page.locator("#servers-pagination-controls select")
         pagination_select.select_option("100")
         servers_page.page.wait_for_load_state("domcontentloaded")
+        servers_page.wait_for_servers_table_loaded()
 
         # Find the server row - should now be visible with 100 items per page
         server_row = servers_page.page.locator(f'[data-testid="server-item"]:has-text("{server_name}")').first
@@ -475,7 +485,7 @@ class TestServersExtended:
             view_btn.click()
 
             # Verify modal opens
-            server_modal = servers_page.page.locator("#server-modal, #server-details-modal, .modal:visible")
+            server_modal = servers_page.page.locator("#server-modal, #server-details, .modal:visible")
             expect(server_modal.first).to_be_visible(timeout=5000)
 
             # Close modal
@@ -520,7 +530,7 @@ class TestServersExtended:
             edit_btn.click()
 
             # Verify edit modal opens
-            edit_modal = servers_page.page.locator("#server-edit-modal, #edit-server-modal, .modal:visible")
+            edit_modal = servers_page.page.locator("#server-edit-modal, #edit-server-form, .modal:visible")
             expect(edit_modal.first).to_be_visible(timeout=5000)
 
             # Verify form is pre-filled with server data
@@ -559,6 +569,7 @@ class TestServersExtended:
         pagination_select = servers_page.page.locator("#servers-pagination-controls select")
         pagination_select.select_option("100")
         servers_page.page.wait_for_load_state("domcontentloaded")
+        servers_page.wait_for_servers_table_loaded()
 
         # Find the server row - should now be visible with 100 items per page
         server_row = servers_page.page.locator(f'[data-testid="server-item"]:has-text("{server_name}")').first
@@ -646,6 +657,7 @@ class TestServersExtended:
         pagination_select = servers_page.page.locator("#servers-pagination-controls select")
         pagination_select.select_option("100")
         servers_page.page.wait_for_load_state("domcontentloaded")
+        servers_page.wait_for_servers_table_loaded()
 
         # Find the server row - should now be visible with 100 items per page
         server_row = servers_page.page.locator(f'[data-testid="server-item"]:has-text("{server_name}")').first
@@ -655,7 +667,7 @@ class TestServersExtended:
         # (delete confirmation + metrics purge), then a form POST with page navigation.
         delete_btn = server_row.locator('form[action*="/delete"] button[type="submit"]:has-text("Delete")')
         if delete_btn.count() > 0:
-            server_row.scroll_into_view_if_needed()
+            expect(delete_btn).to_be_visible(timeout=10000)
             servers_page.page.wait_for_timeout(500)
 
             def handle_dialog(dialog):

@@ -273,7 +273,7 @@ def _ensure_admin_logged_in(page: Page, base_url: str) -> None:
     # Wait for JS initialization (showTab + HTMX) before any tab clicks
     try:
         page.wait_for_function(
-            "typeof window.showTab === 'function' && typeof window.htmx !== 'undefined'",
+            "typeof window.Admin.showTab === 'function' && typeof window.htmx !== 'undefined'",
             timeout=30000,
         )
     except PlaywrightTimeoutError:
@@ -514,7 +514,7 @@ def test_agent_data():
 # These are real, publicly available MCP servers that can be used for testing
 VALID_MCP_SERVER_URLS = [
     "https://docs.mcp.cloudflare.com/sse",
-    "https://www.javadocs.dev/mcp",
+    "https://mcp.deepwiki.com/sse",
     "https://mcp.openzeppelin.com/contracts/cairo/mcp",
     "https://mcp.openzeppelin.com/contracts/stylus/mcp",
     "https://mcp.openzeppelin.com/contracts/stellar/mcp",
