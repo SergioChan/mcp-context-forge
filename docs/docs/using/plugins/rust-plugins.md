@@ -208,7 +208,7 @@ make rust-build-wheels
 # From project root (builds all plugins)
 make rust-dev              # Build and install (development mode)
 make rust-build            # Build release wheel
-make rust-test             # Run Rust unit tests
+make rust-plugins-test     # Run Rust plugin unit tests
 make rust-verify           # Verify installation
 
 # From individual plugin directory
