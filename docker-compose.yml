@@ -120,6 +120,8 @@ services:
     # ports:
     #   - "4444:4444"               # Disabled for multi-replica mode
     networks: [mcpnet]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     # ──────────────────────────────────────────────────────────────────────
     # Environment - pick ONE database URL line, comment the rest
@@ -327,6 +329,7 @@ services:
       # - KEY_FILE_PASSWORD=${KEY_FILE_PASSWORD}
       # Uncomment to enable plugins
       - PLUGINS_ENABLED=true
+      - PLUGINS_CONFIG_FILE=/app/plugins/config.yaml
       # Uncomment to enable catalog
       - MCPGATEWAY_CATALOG_ENABLED=true
       - MCPGATEWAY_CATALOG_FILE=/app/mcp-catalog.yml
@@ -615,6 +618,7 @@ services:
     # Mount catalog configuration and SSL certificates
     volumes:
       - ./mcp-catalog.yml:/app/mcp-catalog.yml:ro # mount catalog configuration
+      - ${PLUGINS_CONFIG_FILE:-./plugins/config.yaml}:/app/plugins/config.yaml:ro # mount plugins configuration
       # - ./certs:/app/certs:ro   # mount certs folder read-only (includes both SSL and JWT keys)
     #
     # SSL/TLS Certificate Setup:
