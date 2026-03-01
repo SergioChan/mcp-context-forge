@@ -1103,41 +1103,36 @@ export const initializeAddMembersForms = function (root = document) {
   allForms.forEach((form) => initializeAddMembersForm(form));
 };
 
-// Function to update default visibility based on team_id in URL
-export const updateDefaultVisibility = function () {
-  const urlParams = new URLSearchParams(window.location.search);
-  const teamId = urlParams.get("team_id");
-  const hasTeam = teamId && teamId.trim() !== "";
+export const isTeamScopedView = function () {
+  const teamId = new URLSearchParams(window.location.search).get("team_id");
+  return Boolean(teamId && teamId.trim() !== "");
+}
 
-  // List of visibility prefixes to handle
-  // These correspond to the "public", "team", "private" radio buttons
-  // e.g. "tool-visibility" -> ids: "tool-visibility-public", "tool-visibility-team", "tool-visibility-private"
-  const visibilityPrefixes = [
-    "gateway-visibility", // Gateways (Create)
-    "server-visibility", // Virtual Servers (Create)
-    "tool-visibility", // Tools (Create)
-    "resource-visibility", // Resources (Create)
-    "prompt-visibility", // Prompts (Create)
-    "a2a-visibility", // Agents (Create)
-  ];
+/**
+ * Apply visibility restrictions (disable/style public radio) without changing checked state.
+ * Use this for edit forms to preserve the entity's saved visibility.
+ * @param {string[]} prefixes - Array of visibility ID prefixes to process
+ */
+export const applyVisibilityRestrictions = function (prefixes) {
+  const hasTeam = isTeamScopedView();
 
-  visibilityPrefixes.forEach((prefix) => {
+  prefixes.forEach((prefix) => {
     const publicId = `[id="${prefix}-public"]`;
-    const teamIdStr = `[id="${prefix}-team"]`;
-    const privateIdStr = `[id="${prefix}-private"]`;
 
-    // Handle potential duplicate IDs using querySelectorAll
     const publicRadios = document.querySelectorAll(publicId);
-    const teamRadios = document.querySelectorAll(teamIdStr);
-    const privateRadios = document.querySelectorAll(privateIdStr);
 
     // Disable public radio when flag is false AND we're in a team-scoped view.
     const publicBlocked = window.ALLOW_PUBLIC_VISIBILITY === false && hasTeam;
     publicRadios.forEach((radio) => {
-      radio.disabled = publicBlocked;
+      // Keep a checked public value enabled in edit forms so FormData
+      // includes visibility and we don't silently change saved state.
+      // This is intentionally one-way: once switched away from public in
+      // restricted team scope, public cannot be re-selected.
+      const shouldDisable = publicBlocked && !radio.checked;
+      radio.disabled = shouldDisable;
       const wrapper = radio.closest(".flex.items-center");
       if (wrapper) {
-        if (publicBlocked) {
+        if (shouldDisable) {
           wrapper.classList.add("opacity-40", "cursor-not-allowed");
           wrapper.title =
             "Public visibility is disabled by platform configuration";
@@ -1151,6 +1146,34 @@ export const updateDefaultVisibility = function () {
         }
       }
     });
+  });
+}
+
+// Function to update default visibility based on team_id in URL
+export const updateDefaultVisibility = function () {
+  const hasTeam = isTeamScopedView();
+
+  // List of visibility prefixes to handle
+  // These correspond to the "public", "team", "private" radio buttons
+  // e.g. "tool-visibility" -> ids: "tool-visibility-public", "tool-visibility-team", "tool-visibility-private"
+  const visibilityPrefixes = [
+    "gateway-visibility", // Gateways (Create)
+    "server-visibility", // Virtual Servers (Create)
+    "tool-visibility", // Tools (Create)
+    "resource-visibility", // Resources (Create)
+    "prompt-visibility", // Prompts (Create)
+    "a2a-visibility", // Agents (Create)
+  ];
+
+  // Set default checked state for add/create forms
+  visibilityPrefixes.forEach((prefix) => {
+    const publicId = `[id="${prefix}-public"]`;
+    const teamIdStr = `[id="${prefix}-team"]`;
+    const privateIdStr = `[id="${prefix}-private"]`;
+
+    const publicRadios = document.querySelectorAll(publicId);
+    const teamRadios = document.querySelectorAll(teamIdStr);
+    const privateRadios = document.querySelectorAll(privateIdStr);
 
     if (hasTeam) {
       // Default to Team
@@ -1190,4 +1213,8 @@ export const updateDefaultVisibility = function () {
       });
     }
   });
-};
+
+  // Apply restrictions after defaults are set so initially checked public
+  // radios in create forms become disabled once switched to team/private.
+  applyVisibilityRestrictions(visibilityPrefixes);
+}

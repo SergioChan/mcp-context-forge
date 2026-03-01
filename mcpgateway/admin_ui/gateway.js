@@ -1,10 +1,20 @@
 import { loadAuthHeaders, updateAuthHeadersJSON } from "./auth.js";
 import { MASKED_AUTH_VALUE } from "./constants.js";
+import {
+  serverSideEditPromptsSearch,
+  serverSideEditResourcesSearch,
+  serverSideEditToolSearch,
+  serverSidePromptSearch,
+  serverSideResourceSearch,
+  serverSideToolSearch,
+} from "./llmChat.js";
 import { closeModal, openModal } from "./modals.js";
 import { initPromptSelect } from "./prompts.js";
 import { initResourceSelect } from "./resources.js";
+import { ensureNoResultsElement } from "./search.js";
 import { validateInputName, validateJson, validateUrl } from "./security.js";
 import { getEditSelections } from "./servers.js";
+import { applyVisibilityRestrictions } from "./teams.js";
 import { initToolSelect } from "./tools.js";
 import {
   decodeHtml,
@@ -290,10 +300,23 @@ export const editGateway = async function (gatewayId) {
       editForm.appendChild(hiddenInput);
     }
 
-    const visibility = gateway.visibility; // Ensure visibility is either 'public', 'team', or 'private'
+    const visibility = gateway.visibility
+      ? gateway.visibility.toLowerCase()
+      : null;
     const publicRadio = safeGetElement("edit-gateway-visibility-public");
     const teamRadio = safeGetElement("edit-gateway-visibility-team");
     const privateRadio = safeGetElement("edit-gateway-visibility-private");
+
+    // Clear all first
+    if (publicRadio) {
+      publicRadio.checked = false;
+    }
+    if (teamRadio) {
+      teamRadio.checked = false;
+    }
+    if (privateRadio) {
+      privateRadio.checked = false;
+    }
 
     if (visibility) {
       // When public visibility is disabled and we're in a team-scoped view,
@@ -537,6 +560,7 @@ export const editGateway = async function (gatewayId) {
     }
 
     openModal("gateway-edit-modal");
+    applyVisibilityRestrictions(["edit-gateway-visibility"]); // Disable public radio if restricted, preserve checked state
     console.log("✓ Gateway edit modal loaded successfully");
   } catch (error) {
     console.error("Error fetching gateway for editing:", error);
@@ -596,17 +620,32 @@ export const initGatewaySelect = function (
         }
       });
 
-      // Update "no results" message if it exists
-      const noMsg = safeGetElement("noGatewayMessage");
-      const searchQuerySpan = safeGetElement("searchQueryServers");
+      // Update "no results" message – ensure element exists even if template is cached
+      // Use edit-modal message element when operating on the edit container
+      const noMsgId = selectId.includes("Edit")
+        ? "noEditGatewayMessage"
+        : "noGatewayMessage";
+      const searchQuerySpanId = selectId.includes("Edit")
+        ? "searchQueryEditServers"
+        : "searchQueryServers";
+      const { msg: noMsg, span: searchQuerySpan } = ensureNoResultsElement(
+        selectId,
+        noMsgId,
+        searchQuerySpanId,
+        "MCP server"
+      );
 
-      if (noMsg) {
-        if (query && visibleCount === 0) {
+      if (query && visibleCount === 0) {
+        container.style.display = "none";
+        if (noMsg) {
           noMsg.style.display = "block";
           if (searchQuerySpan) {
             searchQuerySpan.textContent = query;
           }
-        } else {
+        }
+      } else {
+        container.style.display = "";
+        if (noMsg) {
           noMsg.style.display = "none";
         }
       }
@@ -1084,6 +1123,23 @@ const reloadAssociatedItems = function () {
             selectBtn,
             clearBtn
           );
+
+          // Re-apply active search so a previously-hidden container is correctly shown/hidden
+          const toolSearchInput = document.getElementById(
+            useEditContainers ? "searchEditTools" : "searchTools"
+          );
+          if (toolSearchInput && toolSearchInput.value.trim()) {
+            if (useEditContainers) {
+              serverSideEditToolSearch(toolSearchInput.value.trim());
+            } else {
+              serverSideToolSearch(toolSearchInput.value.trim());
+            }
+          } else if (toolSearchInput) {
+            const toolContainer = document.getElementById(toolsContainerId);
+            if (toolContainer) {
+              toolContainer.style.display = "";
+            }
+          }
         })
         .catch((err) => {
           console.error("[Filter Update DEBUG] Tools reload failed:", err);
@@ -1264,6 +1320,21 @@ const reloadAssociatedItems = function () {
         } catch (e) {
           console.warn("Error restoring associated resources:", e);
         }
+        // Re-apply active search so a previously-hidden container is correctly shown/hidden
+        const resSearchInput = document.getElementById(
+          useEditContainers ? "searchEditResources" : "searchResources"
+        );
+        if (resSearchInput && resSearchInput.value.trim()) {
+          if (useEditContainers) {
+            serverSideEditResourcesSearch(resSearchInput.value.trim());
+          } else {
+            serverSideResourceSearch(resSearchInput.value.trim());
+          }
+        } else if (resSearchInput) {
+          if (resourcesContainer) {
+            resourcesContainer.style.display = "";
+          }
+        }
         console.log(
           "[Filter Update DEBUG] Resources reloaded successfully via fetch"
         );
@@ -1357,6 +1428,23 @@ const reloadAssociatedItems = function () {
             pSelectBtn,
             pClearBtn
           );
+
+          // Re-apply active search so a previously-hidden container is correctly shown/hidden
+          const promptSearchInput = document.getElementById(
+            useEditContainers ? "searchEditPrompts" : "searchPrompts"
+          );
+          if (promptSearchInput && promptSearchInput.value.trim()) {
+            if (useEditContainers) {
+              serverSideEditPromptsSearch(promptSearchInput.value.trim());
+            } else {
+              serverSidePromptSearch(promptSearchInput.value.trim());
+            }
+          } else if (promptSearchInput) {
+            const promptContainer = document.getElementById(promptsContainerId);
+            if (promptContainer) {
+              promptContainer.style.display = "";
+            }
+          }
         });
     }
   }

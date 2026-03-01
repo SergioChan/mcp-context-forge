@@ -28,6 +28,13 @@ export const AppState = {
   },
   _paginationQuerySetters: {},
   editServerSelections: {},
+  /**
+   * Fragment names differ from entity type names for some entities.
+   * e.g. the "servers" toggle navigates to the #catalog tab.
+   */
+  _TOGGLE_FRAGMENT_MAP: {
+    servers: "catalog",
+  },
 
   // Track active modals to prevent multiple opens
   activeModals: new Set(),

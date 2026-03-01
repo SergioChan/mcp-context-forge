@@ -417,30 +417,3 @@ export function installInnerHtmlGuard() {
 
   window.__mcpgatewayInnerHtmlGuardInstalled = true;
 }
-
-// ===================================================================
-// CSRF TOKEN
-// ===================================================================
-
-export function injectCsrfTokenIntoForm(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-
-  let csrfToken = "";
-  if (typeof getCookie === "function") {
-    csrfToken = getCookie("mcpgateway_csrf_token") || "";
-  }
-  if (!csrfToken) {
-    return;
-  }
-
-  let tokenInput = form.querySelector('input[name="csrf_token"]');
-  if (!tokenInput) {
-    tokenInput = document.createElement("input");
-    tokenInput.type = "hidden";
-    tokenInput.name = "csrf_token";
-    form.appendChild(tokenInput);
-  }
-  tokenInput.value = csrfToken;
-}

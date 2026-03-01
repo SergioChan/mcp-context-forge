@@ -257,6 +257,36 @@ export const setupCreateTokenForm = function () {
     // User can create public-only tokens in that context
     await createToken(form);
   });
+
+  // Attach HTMX error handlers to the tokens panel so that a transient backend
+  // failure (e.g. DB pool exhaustion / idle transaction timeout) shows an
+  // actionable error with a retry button instead of leaving the table stale.
+  const tokensPanel = document.getElementById("tokens-panel");
+  if (tokensPanel && !tokensPanel.dataset.htmxErrorHandlerAttached) {
+    tokensPanel.dataset.htmxErrorHandlerAttached = "true";
+    tokensPanel.addEventListener("htmx:responseError", function (evt) {
+      const tokensTable = document.getElementById("tokens-table");
+      if (tokensTable) {
+        const status =
+          evt.detail && evt.detail.xhr ? evt.detail.xhr.status : "error";
+        tokensTable.innerHTML =
+          '<div class="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded dark:bg-red-900 dark:border-red-600 dark:text-red-200">' +
+          "<strong>Failed to load tokens.</strong> The backend may be temporarily unavailable (HTTP " +
+          status +
+          "). " +
+          '<button type="button" onclick="loadTokensList(true);" class="underline font-medium">Retry</button></div>';
+      }
+    });
+    tokensPanel.addEventListener("htmx:sendError", function () {
+      const tokensTable = document.getElementById("tokens-table");
+      if (tokensTable) {
+        tokensTable.innerHTML =
+          '<div class="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded dark:bg-red-900 dark:border-red-600 dark:text-red-200">' +
+          "<strong>Failed to load tokens.</strong> Network error — check your connection and " +
+          '<button type="button" onclick="loadTokensList(true);" class="underline font-medium">retry</button>.</div>';
+      }
+    });
+  }
 };
 
 /**
@@ -449,12 +479,34 @@ const createToken = async function (form) {
     showTokenCreatedModal(result);
     form.reset();
 
+    // Clear any lingering inline error
+    const inlineMessagesSuccess = document.getElementById(
+      "token-creation-messages",
+    );
+    if (inlineMessagesSuccess) {
+      inlineMessagesSuccess.innerHTML = "";
+    }
+
     // Show appropriate success message
     const tokenType = currentTeamId ? "team-scoped" : "public-only";
     showNotification(`${tokenType} token created successfully!`, "success");
   } catch (error) {
     console.error("Error creating token:", error);
     showNotification(`Error creating token: ${error.message}`, "error");
+    // Also show inline near the form — the toast may be missed if the user scrolled
+    const inlineMessages = document.getElementById(
+      "token-creation-messages",
+    );
+    if (inlineMessages) {
+      inlineMessages.innerHTML =
+        '<div class="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded dark:bg-red-900 dark:border-red-600 dark:text-red-200">' +
+        "<strong>Failed to create token:</strong> " +
+        escapeHtml(error.message) +
+        "</div>";
+      setTimeout(function () {
+        inlineMessages.innerHTML = "";
+      }, 15000);
+    }
   } finally {
     submitButton.textContent = originalText;
     submitButton.disabled = false;

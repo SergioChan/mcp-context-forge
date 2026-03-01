@@ -482,13 +482,40 @@ const performTeamSelectorSearch = function (searchTerm) {
 
   const url = `${window.ROOT_PATH || ""}/admin/teams/partial?${params.toString()}`;
 
-  // Use HTMX to load results
-  if (window.htmx) {
-    window.htmx.ajax("GET", url, {
-      target: "#team-selector-items",
-      swap: "innerHTML",
-    });
+  // Load results via fetch for reliable error handling; htmx.ajax() does not
+  // reject on HTTP 5xx so we cannot detect backend failures with it.
+  if (container) {
+    container.innerHTML =
+      '<div class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">Loading\u2026</div>';
   }
+
+  fetch(url, { credentials: "same-origin" })
+    .then(function (resp) {
+      if (!resp.ok) {
+        throw new Error("HTTP " + resp.status);
+      }
+      return resp.text();
+    })
+    .then(function (html) {
+      if (container) {
+        container.innerHTML = html;
+        container.dataset.loaded = "true";
+        if (window.htmx) {
+          window.htmx.process(container);
+        }
+      }
+    })
+    .catch(function () {
+      if (container) {
+        delete container.dataset.loaded;
+        container.innerHTML =
+          '<div class="px-4 py-2 text-sm text-red-600 dark:text-red-400">' +
+          "Failed to load teams. " +
+          '<button type="button" ' +
+          "onclick=\"delete document.getElementById('team-selector-items').dataset.loaded; searchTeamSelector('');\" " +
+          'class="underline font-medium">Retry</button></div>';
+      }
+    });
 }
 
 /**

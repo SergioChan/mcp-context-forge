@@ -372,3 +372,46 @@ export const navigateToGlobalSearchResult = function (button) {
     }, 120);
   }
 };
+
+/**
+ * Ensure a "no results" message element exists in the DOM for a search container.
+ * If the element already exists, returns { msg, span }. Otherwise creates it
+ * dynamically and inserts it right after the container so the feature works
+ * regardless of template-caching state.
+ *
+ * @param {string} containerId  - The id of the items container (e.g. "associatedTools")
+ * @param {string} msgId        - The id for the <p> message element (e.g. "noToolsMessage")
+ * @param {string} spanId       - The id for the inner <span> that shows the query text
+ * @param {string} entityLabel  - Human-readable label (e.g. "tool", "MCP server")
+ * @returns {{ msg: HTMLElement|null, span: HTMLElement|null }}
+ */
+export const ensureNoResultsElement = function (containerId, msgId, spanId, entityLabel) {
+  let msg = document.getElementById(msgId);
+  let span = document.getElementById(spanId);
+  if (msg) {
+    // Element already in the DOM – just return references
+    if (!span) {
+      span = msg.querySelector("span");
+    }
+    return { msg, span };
+  }
+  // Create the message element dynamically
+  const container = document.getElementById(containerId);
+  if (!container) {
+    return { msg: null, span: null };
+  }
+  msg = document.createElement("p");
+  msg.id = msgId;
+  msg.className = "text-gray-700 dark:text-gray-300 mt-2";
+  msg.style.display = "none";
+  span = document.createElement("span");
+  span.id = spanId;
+  msg.appendChild(
+    document.createTextNode(`No ${entityLabel} found containing \u201C`)
+  );
+  msg.appendChild(span);
+  msg.appendChild(document.createTextNode("\u201D"));
+  // Insert right after the container
+  container.parentNode.insertBefore(msg, container.nextSibling);
+  return { msg, span };
+}

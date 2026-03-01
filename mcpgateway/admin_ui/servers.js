@@ -6,6 +6,7 @@ import { openModal } from "./modals.js";
 import { initPromptSelect } from "./prompts.js";
 import { initResourceSelect } from "./resources.js";
 import { validateInputName, validateUrl } from "./security.js";
+import { applyVisibilityRestrictions } from "./teams.js";
 import {
   safeGetElement,
   fetchWithTimeout,
@@ -510,10 +511,23 @@ export const editServer = async function (serverId) {
     }
     hiddenField.value = isInactiveCheckedBool;
 
-    const visibility = server.visibility; // Ensure visibility is either 'public', 'team', or 'private'
-    const publicRadio = safeGetElement("edit-visibility-public");
-    const teamRadio = safeGetElement("edit-visibility-team");
-    const privateRadio = safeGetElement("edit-visibility-private");
+    const visibility = server.visibility
+      ? server.visibility.toLowerCase()
+      : null;
+    const publicRadio = safeGetElement("edit-server-visibility-public");
+    const teamRadio = safeGetElement("edit-server-visibility-team");
+    const privateRadio = safeGetElement("edit-server-visibility-private");
+
+    // Clear all first
+    if (publicRadio) {
+      publicRadio.checked = false;
+    }
+    if (teamRadio) {
+      teamRadio.checked = false;
+    }
+    if (privateRadio) {
+      privateRadio.checked = false;
+    }
 
     // Prepopulate visibility radio buttons based on the server data
     if (visibility) {
@@ -721,6 +735,7 @@ export const editServer = async function (serverId) {
     ensureEditStoreListeners();
 
     openModal("server-edit-modal");
+    applyVisibilityRestrictions(["edit-server-visibility"]); // Disable public radio if restricted, preserve checked state
     // Initialize the select handlers for gateways, resources and prompts in the edit modal
     // so that gateway changes will trigger filtering of associated items while editing.
     if (safeGetElement("associatedEditGateways")) {

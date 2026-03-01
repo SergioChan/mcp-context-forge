@@ -3,6 +3,7 @@ import { getSelectedGatewayIds } from "./gateway.js";
 import { openModal } from "./modals.js";
 import { escapeHtml, validateInputName, validateJson } from "./security.js";
 import { getEditSelections } from "./servers.js";
+import { applyVisibilityRestrictions } from "./teams.js";
 import {
   decodeHtml,
   fetchWithTimeout,
@@ -472,6 +473,7 @@ export const editPrompt = async function (promptId) {
     }
 
     openModal("prompt-edit-modal");
+    applyVisibilityRestrictions(["edit-prompt-visibility"]); // Disable public radio if restricted, preserve checked state
 
     // Refresh editors after modal display
     setTimeout(() => {

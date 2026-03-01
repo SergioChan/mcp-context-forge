@@ -3,6 +3,7 @@
 import { getSelectedGatewayIds } from "./gateway.js";
 import { initPromptSelect } from "./prompts.js";
 import { initResourceSelect } from "./resources.js";
+import { ensureNoResultsElement } from "./search.js";
 import {
   escapeHtml,
   escapeHtmlChat,
@@ -2020,18 +2021,29 @@ const initializeChatInputResize = function () {
     }
   }
 };
+
+// TAKE STUFF BELOW OUT OF LLM CHAT!!! (maybe into search?)
+
 /**
  * Perform server-side search for tools and update the tool list
  */
 export const serverSideToolSearch = async function (searchTerm) {
   const container = safeGetElement("associatedTools");
-  const noResultsMessage = safeGetElement("noToolsMessage", true);
-  const searchQuerySpan = safeGetElement("searchQueryTools", true);
+  const { msg: noResultsMessage, span: searchQuerySpan } =
+    ensureNoResultsElement(
+      "associatedTools",
+      "noToolsMessage",
+      "searchQueryTools",
+      "tool"
+    );
 
   if (!container) {
     console.error("associatedTools container not found");
     return;
   }
+
+  // Ensure container is visible (may have been hidden by a previous no-results search)
+  container.style.display = "";
 
   // Get selected gateway IDs to maintain filtering
   const selectedGatewayIds = getSelectedGatewayIds
@@ -2189,6 +2201,7 @@ export const serverSideToolSearch = async function (searchTerm) {
     } else {
       // Show no results message
       container.innerHTML = "";
+      container.style.display = "none";
       if (noResultsMessage) {
         if (searchQuerySpan) {
           searchQuerySpan.textContent = searchTerm;
@@ -2279,13 +2292,21 @@ export const updateResourceMapping = function (container) {
  */
 export const serverSidePromptSearch = async function (searchTerm) {
   const container = safeGetElement("associatedPrompts");
-  const noResultsMessage = safeGetElement("noPromptsMessage", true);
-  const searchQuerySpan = safeGetElement("searchPromptsQuery", true);
+  const { msg: noResultsMessage, span: searchQuerySpan } =
+    ensureNoResultsElement(
+      "associatedPrompts",
+      "noPromptsMessage",
+      "searchPromptsQuery",
+      "prompt"
+    );
 
   if (!container) {
     console.error("associatedPrompts container not found");
     return;
   }
+
+  // Ensure container is visible (may have been hidden by a previous no-results search)
+  container.style.display = "";
 
   // Get selected gateway IDs to maintain filtering
   const selectedGatewayIds = getSelectedGatewayIds
@@ -2480,6 +2501,7 @@ export const serverSidePromptSearch = async function (searchTerm) {
       }
     } else {
       container.innerHTML = "";
+      container.style.display = "none";
       if (noResultsMessage) {
         if (searchQuerySpan) {
           searchQuerySpan.textContent = searchTerm;
@@ -2502,13 +2524,21 @@ export const serverSidePromptSearch = async function (searchTerm) {
  */
 export const serverSideResourceSearch = async function (searchTerm) {
   const container = safeGetElement("associatedResources");
-  const noResultsMessage = safeGetElement("noResourcesMessage", true);
-  const searchQuerySpan = safeGetElement("searchResourcesQuery", true);
+  const { msg: noResultsMessage, span: searchQuerySpan } =
+    ensureNoResultsElement(
+      "associatedResources",
+      "noResourcesMessage",
+      "searchResourcesQuery",
+      "resource"
+    );
 
   if (!container) {
     console.error("associatedResources container not found");
     return;
   }
+
+  // Ensure container is visible (may have been hidden by a previous no-results search)
+  container.style.display = "";
 
   // Get selected gateway IDs to maintain filtering
   const selectedGatewayIds = getSelectedGatewayIds
@@ -2698,6 +2728,7 @@ export const serverSideResourceSearch = async function (searchTerm) {
       }
     } else {
       container.innerHTML = "";
+      container.style.display = "none";
       if (noResultsMessage) {
         if (searchQuerySpan) {
           searchQuerySpan.textContent = searchTerm;
@@ -2720,13 +2751,21 @@ export const serverSideResourceSearch = async function (searchTerm) {
  */
 export const serverSideEditToolSearch = async function (searchTerm) {
   const container = safeGetElement("edit-server-tools");
-  const noResultsMessage = safeGetElement("noEditToolsMessage", true);
-  const searchQuerySpan = safeGetElement("searchQueryEditTools", true);
+  const { msg: noResultsMessage, span: searchQuerySpan } =
+    ensureNoResultsElement(
+      "edit-server-tools",
+      "noEditToolsMessage",
+      "searchQueryEditTools",
+      "tool"
+    );
 
   if (!container) {
     console.error("edit-server-tools container not found");
     return;
   }
+
+  // Ensure container is visible (may have been hidden by a previous no-results search)
+  container.style.display = "";
 
   // Get selected gateway IDs to maintain filtering
   const selectedGatewayIds = getSelectedGatewayIds
@@ -2993,6 +3032,7 @@ export const serverSideEditToolSearch = async function (searchTerm) {
     } else {
       // Show no results message
       container.innerHTML = "";
+      container.style.display = "none";
       if (noResultsMessage) {
         if (searchQuerySpan) {
           searchQuerySpan.textContent = searchTerm;
@@ -3016,13 +3056,21 @@ export const serverSideEditToolSearch = async function (searchTerm) {
  */
 export const serverSideEditPromptsSearch = async function (searchTerm) {
   const container = safeGetElement("edit-server-prompts");
-  const noResultsMessage = safeGetElement("noEditPromptsMessage", true);
-  const searchQuerySpan = safeGetElement("searchQueryEditPrompts", true);
+  const { msg: noResultsMessage, span: searchQuerySpan } =
+    ensureNoResultsElement(
+      "edit-server-prompts",
+      "noEditPromptsMessage",
+      "searchQueryEditPrompts",
+      "prompt"
+    );
 
   if (!container) {
     console.error("edit-server-prompts container not found");
     return;
   }
+
+  // Ensure container is visible (may have been hidden by a previous no-results search)
+  container.style.display = "";
 
   // Get selected gateway IDs to maintain filtering
   const selectedGatewayIds = getSelectedGatewayIds
@@ -3279,6 +3327,7 @@ export const serverSideEditPromptsSearch = async function (searchTerm) {
     } else {
       // Show no results message
       container.innerHTML = "";
+      container.style.display = "none";
       if (noResultsMessage) {
         if (searchQuerySpan) {
           searchQuerySpan.textContent = searchTerm;
@@ -3301,13 +3350,21 @@ export const serverSideEditPromptsSearch = async function (searchTerm) {
  */
 export const serverSideEditResourcesSearch = async function (searchTerm) {
   const container = safeGetElement("edit-server-resources");
-  const noResultsMessage = safeGetElement("noEditResourcesMessage", true);
-  const searchQuerySpan = safeGetElement("searchQueryEditResources", true);
+  const { msg: noResultsMessage, span: searchQuerySpan } =
+    ensureNoResultsElement(
+      "edit-server-resources",
+      "noEditResourcesMessage",
+      "searchQueryEditResources",
+      "resource"
+    );
 
   if (!container) {
     console.error("edit-server-resources container not found");
     return;
   }
+
+  // Ensure container is visible (may have been hidden by a previous no-results search)
+  container.style.display = "";
 
   // Get selected gateway IDs to maintain filtering
   const selectedGatewayIds = getSelectedGatewayIds
@@ -3559,6 +3616,8 @@ export const serverSideEditResourcesSearch = async function (searchTerm) {
     } else {
       // Show no results message
       container.innerHTML = "";
+      container.style.display = "none";
+      z;
       if (noResultsMessage) {
         if (searchQuerySpan) {
           searchQuerySpan.textContent = searchTerm;

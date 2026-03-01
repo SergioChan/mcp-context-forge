@@ -12,6 +12,7 @@ import {
 } from "./security.js";
 import { getEditSelections } from "./servers.js";
 import { getUiHiddenSections } from "./tabs.js";
+import { applyVisibilityRestrictions } from "./teams.js";
 import {
   decodeHtml,
   fetchWithTimeout,
@@ -563,14 +564,27 @@ export const editTool = async function (toolId) {
       editForm.appendChild(hiddenInput);
     }
 
-    const visibility = tool.visibility; // Ensure visibility is either 'public', 'team', or 'private'
+    const visibility = tool.visibility
+      ? tool.visibility.toLowerCase()
+      : null;
     const publicRadio = safeGetElement("edit-tool-visibility-public");
     const teamRadio = safeGetElement("edit-tool-visibility-team");
     const privateRadio = safeGetElement("edit-tool-visibility-private");
 
+    // Clear all first
+    if (publicRadio) {
+      publicRadio.checked = false;
+    }
+    if (teamRadio) {
+      teamRadio.checked = false;
+    }
+    if (privateRadio) {
+      privateRadio.checked = false;
+    }
+
     if (visibility) {
       // When public visibility is disabled and we're in a team-scoped view,
-      // coerce legacy-public records to team or private.
+      // coerce legacy-public records to team.
       const effectiveVisibility =
         window.ALLOW_PUBLIC_VISIBILITY === false &&
         visibility === "public" &&
@@ -871,6 +885,7 @@ export const editTool = async function (toolId) {
     }
 
     openModal("tool-edit-modal");
+    applyVisibilityRestrictions(["edit-resource-visibility"]); // Disable public radio if restricted, preserve checked state
 
     // Ensure editors are refreshed after modal display
     setTimeout(() => {

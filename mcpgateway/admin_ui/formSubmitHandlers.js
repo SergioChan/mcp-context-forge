@@ -1,5 +1,6 @@
 import { HEADER_NAME_REGEX } from "./constants";
 import { generateSchema } from "./formFieldHandlers";
+import { navigateAdmin } from "./navigation";
 import {
   safeParseJsonResponse,
   validateInputName,
@@ -131,6 +132,8 @@ export const handleGatewayFormSubmit = async function (e) {
         searchParams.set("team_id", teamId);
       }
 
+      navigateAdmin("gateways", searchParams);
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#gateways`;
       window.location.href = redirectUrl;
@@ -213,6 +216,9 @@ export const handleResourceFormSubmit = async function (e) {
       if (teamId) {
         searchParams.set("team_id", teamId);
       }
+
+      navigateAdmin("gateways", searchParams);
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#resources`;
       window.location.href = redirectUrl;
@@ -280,6 +286,9 @@ export const handlePromptFormSubmit = async function (e) {
     if (teamId) {
       searchParams.set("team_id", teamId);
     }
+
+    navigateAdmin("gateways", searchParams);
+      
     const queryString = searchParams.toString();
     const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#prompts`;
     window.location.href = redirectUrl;
@@ -352,6 +361,9 @@ export const handleEditPromptFormSubmit = async function (e) {
     if (teamId) {
       searchParams.set("team_id", teamId);
     }
+
+    navigateAdmin("gateways", searchParams);
+
     const queryString = searchParams.toString();
     const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#prompts`;
     window.location.href = redirectUrl;
@@ -461,6 +473,8 @@ export const handleServerFormSubmit = async function (e) {
       if (teamId) {
         searchParams.set("team_id", teamId);
       }
+
+      navigateAdmin("gateways", searchParams);
 
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#catalog`;
@@ -586,6 +600,9 @@ export const handleA2AFormSubmit = async function (e) {
         searchParams.set("team_id", teamId);
       }
 
+      navigateAdmin("gateways", searchParams);
+
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#a2a-agents`;
       window.location.href = redirectUrl;
@@ -679,6 +696,9 @@ export const handleToolFormSubmit = async function (event) {
       if (teamId) {
         searchParams.set("team_id", teamId);
       }
+
+      navigateAdmin("gateways", searchParams);
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#tools`;
       window.location.href = redirectUrl;
@@ -745,6 +765,9 @@ export const handleEditToolFormSubmit = async function (event) {
       if (teamId) {
         searchParams.set("team_id", teamId);
       }
+
+      navigateAdmin("gateways", searchParams);
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#tools`;
       window.location.href = redirectUrl;
@@ -834,6 +857,9 @@ export const handleEditGatewayFormSubmit = async function (e) {
     if (teamId) {
       searchParams.set("team_id", teamId);
     }
+
+    navigateAdmin("gateways", searchParams);
+
     const queryString = searchParams.toString();
     const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#gateways`;
     window.location.href = redirectUrl;
@@ -927,6 +953,9 @@ export const handleEditA2AAgentFormSubmit = async function (e) {
     if (teamId) {
       searchParams.set("team_id", teamId);
     }
+
+    navigateAdmin("gateways", searchParams);
+
     const queryString = searchParams.toString();
     const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#a2a-agents`;
     window.location.href = redirectUrl;
@@ -1018,6 +1047,9 @@ export const handleEditServerFormSubmit = async function (e) {
       if (teamId) {
         searchParams.set("team_id", teamId);
       }
+
+      navigateAdmin("gateways", searchParams);
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#catalog`;
       window.location.href = redirectUrl;
@@ -1091,6 +1123,9 @@ export const handleEditResFormSubmit = async function (e) {
       if (teamId) {
         searchParams.set("team_id", teamId);
       }
+
+      navigateAdmin("gateways", searchParams);
+
       const queryString = searchParams.toString();
       const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#resources`;
       window.location.href = redirectUrl;
@@ -1186,6 +1221,8 @@ export const handleGrpcServiceFormSubmit = async function (e) {
     if (teamId) {
       searchParams.set("team_id", teamId);
     }
+
+    navigateAdmin("gateways", searchParams);
 
     const queryString = searchParams.toString();
     const redirectUrl = `${window.ROOT_PATH}/admin${queryString ? `?${queryString}` : ""}#grpc-services`;

@@ -1,5 +1,6 @@
 import { closeModal, openModal } from "./modals.js";
 import { escapeHtml, validateInputName, validateUrl } from "./security.js";
+import { applyVisibilityRestrictions } from "./teams.js";
 import { getAuthToken } from "./tokens.js";
 import {
   decodeHtml,
@@ -327,9 +328,9 @@ export const editA2AAgent = async function (agentId) {
     // ✅ Prefill visibility radios (consistent with server)
     const visibility = agent.visibility ? agent.visibility.toLowerCase() : null;
 
-    const publicRadio = safeGetElement("a2a-visibility-public-edit");
-    const teamRadio = safeGetElement("a2a-visibility-team-edit");
-    const privateRadio = safeGetElement("a2a-visibility-private-edit");
+    const publicRadio = safeGetElement("edit-a2a-visibility-public");
+    const teamRadio = safeGetElement("edit-a2a-visibility-team");
+    const privateRadio = safeGetElement("edit-a2a-visibility-private");
 
     // Clear all first
     if (publicRadio) {
@@ -546,6 +547,7 @@ export const editA2AAgent = async function (agentId) {
     }
 
     openModal("a2a-edit-modal");
+    applyVisibilityRestrictions(["edit-a2a-visibility"]); // Disable public radio if restricted, preserve checked state
     console.log("✓ A2A Agent edit modal loaded successfully");
   } catch (err) {
     console.error("Error loading A2A agent:", err);
