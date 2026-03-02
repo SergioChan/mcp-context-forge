@@ -42,3 +42,12 @@ make rust-bench
 # Rust vs Python comparison
 make rust-bench-compare
 ```
+
+## A2A invoke benchmark
+
+Compares speed of `POST /a2a/{agent_name}/invoke` on the current branch to a **fixed legacy main** baseline so that after merge you still compare latest vs that baseline.
+
+- **Prerequisite (branch with Rust A2A):** Install the gateway Rust extension so `gateway_rs` is available: `make gateway-rs-install` (or `make rust-install`). Without this, the benchmark fails with `ModuleNotFoundError: No module named 'gateway_rs'`.
+- **Run:** `make bench a2a_invoke` or `make bench BENCH=a2a_invoke`
+- **Baseline:** Stored in `benchmarks/a2a_invoke_baseline_main.json`. The commit used as baseline is hardcoded in `test_a2a_invoke_benchmark.py` (`A2A_INVOKE_MAIN_BASELINE_COMMIT`) so it does not change when main moves.
+- **Refresh baseline from main:** Stash your changes, checkout main (or the baseline commit), pop the benchmark files, run `SAVE_A2A_INVOKE_BASELINE=1 make bench a2a_invoke`, then checkout back and restore. Commit the updated `benchmarks/a2a_invoke_baseline_main.json`.
