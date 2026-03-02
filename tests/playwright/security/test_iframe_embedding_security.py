@@ -56,7 +56,7 @@ def _find_cookie(page: Page, name: str) -> Optional[Dict[str, Any]]:
 
 @pytest.fixture
 def captured_admin_headers(page: Page, base_url: str) -> Dict[str, str]:
-    """Intercept /admin/ response and capture security headers.
+    """Intercept /ui/ response and capture security headers.
 
     Returns a dict with lowercased header names as keys.
     """
@@ -70,7 +70,7 @@ def captured_admin_headers(page: Page, base_url: str) -> Dict[str, str]:
                 captured[hdr] = val
         route.fulfill(response=response)
 
-    pattern = re.compile(r".*/admin/?(\?.*)?$")
+    pattern = re.compile(r".*/ui/?(\..*)?$")
     page.route(pattern, _capture)
     _ensure_admin_logged_in(page, base_url)
     page.unroute(pattern)
@@ -97,10 +97,10 @@ def iframe_host(page: Page, base_url: str):
         except Exception:
             pass
 
-    admin_pattern = re.compile(r".*/admin.*")
+    admin_pattern = re.compile(r".*/ui.*")
     page.route(admin_pattern, _strip_headers)
 
-    admin_url = f"{base_url}/admin/"
+    admin_url = f"{base_url}/ui/"
     page.set_content(
         f"""<!DOCTYPE html>
 <html><head><title>iframe host</title></head>
@@ -212,7 +212,7 @@ class TestSecurityHeadersInIframeContext:
             pytest.skip("X-Frame-Options is not DENY; test only applies when DENY is configured.")
 
         _ensure_admin_logged_in(page, base_url)
-        admin_url = f"{base_url}/admin/"
+        admin_url = f"{base_url}/ui/"
         page.set_content(
             f"""<!DOCTYPE html>
 <html><head><title>deny test</title></head>
@@ -289,19 +289,19 @@ class TestCookieSecurityAttributes:
         assert csrf_cookie["httpOnly"] is False, "CSRF cookie must not be httpOnly (JS needs to read it)"
 
     def test_csrf_cookie_path_scoped_to_admin(self, page: Page, base_url: str):
-        """CSRF cookie path starts with /admin."""
+        """CSRF cookie path starts with /ui."""
         if not settings.auth_required:
             pytest.skip("Authentication disabled; CSRF cookies not applicable.")
 
         _ensure_admin_logged_in(page, base_url)
         csrf_cookie = _find_cookie(page, ADMIN_CSRF_COOKIE_NAME)
         assert csrf_cookie is not None, f"Expected {ADMIN_CSRF_COOKIE_NAME} cookie"
-        assert csrf_cookie["path"].startswith("/admin"), f"CSRF cookie path should start with /admin, got {csrf_cookie['path']}"
+        assert csrf_cookie["path"].startswith("/ui"), f"CSRF cookie path should start with /ui, got {csrf_cookie['path']}"
 
     def test_ui_hide_cookie_samesite_matches_config(self, page: Page, base_url: str):
         """ui_hide_sections cookie has sameSite matching settings.cookie_samesite."""
         _ensure_admin_logged_in(page, base_url)
-        page.goto(f"{base_url}/admin/?ui_hide=metrics")
+        page.goto(f"{base_url}/ui/?ui_hide=metrics")
         try:
             page.wait_for_selector('[data-testid="servers-tab"]', state="visible", timeout=15000)
         except PlaywrightTimeoutError:
@@ -314,7 +314,7 @@ class TestCookieSecurityAttributes:
     def test_ui_hide_cookie_is_httponly(self, page: Page, base_url: str):
         """ui_hide_sections cookie has httpOnly=True (server-only cookie)."""
         _ensure_admin_logged_in(page, base_url)
-        page.goto(f"{base_url}/admin/?ui_hide=metrics")
+        page.goto(f"{base_url}/ui/?ui_hide=metrics")
         try:
             page.wait_for_selector('[data-testid="servers-tab"]', state="visible", timeout=15000)
         except PlaywrightTimeoutError:
@@ -380,10 +380,10 @@ class TestEmbeddedModeUIBehavior:
             except Exception:
                 pass
 
-        admin_pattern = re.compile(r".*/admin.*")
+        admin_pattern = re.compile(r".*/ui.*")
         page.route(admin_pattern, _strip_headers)
 
-        admin_url = f"{base_url}/admin/?ui_hide=metrics"
+        admin_url = f"{base_url}/ui/?ui_hide=metrics"
         page.set_content(
             f"""<!DOCTYPE html>
 <html><head><title>ui_hide iframe test</title></head>
@@ -413,7 +413,7 @@ class TestEmbeddedModeUIBehavior:
         _ensure_admin_logged_in(page, base_url)
 
         # First set the cookie by navigating with a value
-        page.goto(f"{base_url}/admin/?ui_hide=metrics")
+        page.goto(f"{base_url}/ui/?ui_hide=metrics")
         try:
             page.wait_for_selector('[data-testid="servers-tab"]', state="visible", timeout=15000)
         except PlaywrightTimeoutError:
@@ -423,7 +423,7 @@ class TestEmbeddedModeUIBehavior:
         assert ui_cookie is not None, "Expected ui_hide cookie to be set after ?ui_hide=metrics"
 
         # Now clear it with empty ui_hide
-        page.goto(f"{base_url}/admin/?ui_hide=")
+        page.goto(f"{base_url}/ui/?ui_hide=")
         try:
             page.wait_for_selector('[data-testid="servers-tab"]', state="visible", timeout=15000)
         except PlaywrightTimeoutError:
@@ -500,13 +500,13 @@ class TestCORSInIframeContext:
         assert acao is None or acao not in ("https://evil.example.com", "*"), f"Evil origin should not be allowed; got ACAO={acao}"
 
     def test_csrf_cross_origin_rejection(self, page: Page, base_url: str):
-        """POST to /admin/logout with cross-origin and no CSRF token is rejected."""
+        """POST to /ui/logout with cross-origin and no CSRF token is rejected."""
         if not settings.auth_required:
             pytest.skip("Authentication disabled; CSRF protections not applicable.")
 
         _ensure_admin_logged_in(page, base_url)
         response = page.request.post(
-            f"{base_url}/admin/logout",
+            f"{base_url}/ui/logout",
             headers={"Origin": "https://evil.example.com"},
         )
         assert response.status in (400, 403), f"Cross-origin POST without CSRF token should be rejected, got {response.status}"
@@ -666,7 +666,7 @@ class TestIframeFormSubmission:
 
             # Submit and wait for the POST response from the admin form handler.
             # The admin form uses JS fetch() so the page does NOT navigate.
-            with page.expect_response(lambda r: "/admin/gateways" in r.url and r.request.method == "POST", timeout=30000) as resp_info:
+            with page.expect_response(lambda r: "/ui/gateways" in r.url and r.request.method == "POST", timeout=30000) as resp_info:
                 frame.locator('#add-gateway-form button[type="submit"]').click()
 
             post_resp = resp_info.value
@@ -706,7 +706,7 @@ class TestIframeFormSubmission:
             frame.locator("#server-name").fill(srv_name)
 
             # Submit and wait for response
-            with page.expect_response(lambda r: "/admin/servers" in r.url and r.request.method == "POST", timeout=15000):
+            with page.expect_response(lambda r: "/ui/servers" in r.url and r.request.method == "POST", timeout=15000):
                 frame.locator('#add-server-form button[type="submit"]').click()
 
             # Verify via API
@@ -744,7 +744,7 @@ class TestIframeFormSubmission:
             frame.locator("#tool-url").fill(tool_url)
 
             # Submit and wait for response
-            with page.expect_response(lambda r: "/admin/tools" in r.url and r.request.method == "POST", timeout=15000):
+            with page.expect_response(lambda r: "/ui/tools" in r.url and r.request.method == "POST", timeout=15000):
                 frame.locator('#add-tool-form button[type="submit"]').click()
 
             # Verify via API
@@ -795,7 +795,7 @@ class TestIframeFormSubmission:
             desc_field.fill(new_description)
 
             # Submit edit form
-            with page.expect_response(lambda r: "/admin/gateways" in r.url and r.request.method == "POST", timeout=15000):
+            with page.expect_response(lambda r: "/ui/gateways" in r.url and r.request.method == "POST", timeout=15000):
                 edit_form.locator('button[type="submit"]').click()
 
             # Verify via API
