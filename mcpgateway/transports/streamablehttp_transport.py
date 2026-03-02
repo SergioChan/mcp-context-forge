@@ -960,9 +960,9 @@ async def call_tool(name: str, arguments: dict) -> Union[
                             elif item_type == "resource":
                                 converted.append(types.EmbeddedResource.model_validate(item))
                             else:
-                                converted.append(types.TextContent(type="text", text=str(item)))
+                                converted.append(types.TextContent(type="text", text=item if isinstance(item, str) else orjson.dumps(item).decode()))
                         except Exception:
-                            converted.append(types.TextContent(type="text", text=str(item)))
+                            converted.append(types.TextContent(type="text", text=item if isinstance(item, str) else orjson.dumps(item).decode()))
                     return converted
 
                 unstructured = _rehydrate_content_items(result_data.get("content", []))
@@ -1077,7 +1077,7 @@ async def call_tool(name: str, arguments: dict) -> Union[
                     unstructured.append(types.EmbeddedResource.model_validate(content.model_dump(by_alias=True, mode="json")))
                 else:
                     # Unknown content type - convert to text representation
-                    unstructured.append(types.TextContent(type="text", text=str(content.model_dump(by_alias=True, mode="json"))))
+                    unstructured.append(types.TextContent(type="text", text=orjson.dumps(content.model_dump(by_alias=True, mode="json")).decode()))
 
             # If the tool produced structured content (ToolResult.structured_content / structuredContent),
             # return a combination (unstructured, structured) so the server can validate against outputSchema.
@@ -1994,7 +1994,11 @@ class SessionManagerWrapper:
 
         # Multi-worker session affinity: check if we should forward to another worker
         # This must happen BEFORE the SDK's session manager handles the request
-        is_internally_forwarded = headers.get("x-forwarded-internally") == "true"
+        # Only trust x-forwarded-internally from loopback to prevent external spoofing
+        _client = scope.get("client")
+        _client_host = _client[0] if _client else None
+        _from_loopback = _client_host in ("127.0.0.1", "::1") if _client_host else False
+        is_internally_forwarded = _from_loopback and headers.get("x-forwarded-internally") == "true"
 
         if settings.mcpgateway_session_affinity_enabled and mcp_session_id != "not-provided":
             try:

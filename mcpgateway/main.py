@@ -42,6 +42,7 @@ import warnings
 # Third-Party
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.background import BackgroundTasks
+from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import request_validation_exception_handler as fastapi_default_validation_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -149,6 +150,7 @@ from mcpgateway.utils.passthrough_headers import set_global_passthrough_headers
 from mcpgateway.utils.redis_client import close_redis_client, get_redis_client
 from mcpgateway.utils.redis_isready import wait_for_redis_ready
 from mcpgateway.utils.retry_manager import ResilientHttpClient
+from mcpgateway.utils.token_scoping import validate_server_access
 from mcpgateway.utils.verify_credentials import extract_websocket_bearer_token, is_proxy_auth_trust_active, require_docs_auth_override, verify_jwt_token
 from mcpgateway.validation.jsonrpc import JSONRPCError
 
@@ -2169,6 +2171,37 @@ def decode_html_entities(value: str) -> str:
 
 jinja_env.filters["decode_html"] = decode_html_entities
 
+
+def tojson_attr(value: object) -> str:
+    """JSON-encode a value for safe use inside double-quoted HTML attributes.
+
+    Unlike the built-in ``|tojson`` filter (which returns ``Markup``, bypassing
+    autoescape), this filter returns a plain ``str``.  Jinja2 autoescape then
+    HTML-encodes the ``"`` characters to ``&quot;``, keeping the enclosing
+    ``"``-delimited HTML attribute intact.  The browser decodes the entities
+    back to ``"`` before passing the value to the JS engine.
+
+    Use ``|tojson_attr`` for inline event handlers (``onclick``, ``onsubmit``).
+    Use the built-in ``|tojson`` for ``<script>`` blocks (where ``Markup`` is fine).
+
+    Args:
+        value: Any JSON-serialisable object.
+
+    Returns:
+        Plain string with JSON content (autoescape will HTML-encode it).
+    """
+    # Standard
+    import json as _json
+
+    s = _json.dumps(value)
+    # Same HTML-safety replacements as Jinja2's htmlsafe_json_dumps,
+    # but we return a plain str so autoescape encodes the remaining `"`.
+    s = s.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e").replace("'", "\\u0027")
+    return s
+
+
+jinja_env.filters["tojson_attr"] = tojson_attr
+
 templates = Jinja2Templates(env=jinja_env)
 if not settings.templates_auto_reload:
     logger.info("🎨 Template auto-reload disabled (production mode)")
@@ -2700,8 +2733,9 @@ async def list_servers(
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    # Determine final team ID
-    team_id = team_id or token_team_id
+    # For listing, only narrow by team_id when explicitly requested via query param.
+    # Do NOT auto-narrow to token's single team; token_teams handles visibility scoping
+    # (public + team resources). Auto-narrowing would exclude public servers.
 
     # SECURITY: token_teams is normalized in auth.py:
     # - None: admin bypass (is_admin=true with explicit null teams) - sees ALL resources
@@ -3381,21 +3415,17 @@ async def list_a2a_agents(
         token_teams = []  # Non-admin without teams = public-only (secure default)
 
     # Check team_id from request.state (set during auth)
-    # Only use for non-empty-team tokens; empty-team tokens should rely on visibility filtering
     token_team_id = getattr(request.state, "team_id", None)
-    is_empty_team_token = token_teams is not None and len(token_teams) == 0
 
     # Check for team ID mismatch (only applies when both are specified and token has teams)
-    if team_id is not None and token_team_id is not None and team_id != token_team_id and not is_empty_team_token:
+    if team_id is not None and token_team_id is not None and team_id != token_team_id:
         return ORJSONResponse(
             content={"message": "Access issue: This API token does not have the required permissions for this team."},
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    # Determine final team ID - don't use token_team_id for empty-team tokens
-    # Empty-team tokens should filter by public + owned, not by personal team
-    if not is_empty_team_token:
-        team_id = team_id or token_team_id
+    # For listing, only narrow by team_id when explicitly requested via query param.
+    # Do NOT auto-narrow to token's single team; token_teams handles visibility scoping.
 
     logger.debug(f"User: {user_email} requested A2A agent list with team_id={team_id}, visibility={visibility}, tags={tags_list}, cursor={cursor}")
 
@@ -3839,21 +3869,17 @@ async def list_tools(
         token_teams = []  # Non-admin without teams = public-only (secure default)
 
     # Check team_id from request.state (set during auth)
-    # Only use for non-empty-team tokens; empty-team tokens should rely on visibility filtering
     token_team_id = getattr(request.state, "team_id", None)
-    is_empty_team_token = token_teams is not None and len(token_teams) == 0
 
     # Check for team ID mismatch (only applies when both are specified and token has teams)
-    if team_id is not None and token_team_id is not None and team_id != token_team_id and not is_empty_team_token:
+    if team_id is not None and token_team_id is not None and team_id != token_team_id:
         return ORJSONResponse(
             content={"message": "Access issue: This API token does not have the required permissions for this team."},
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    # Determine final team ID - don't use token_team_id for empty-team tokens
-    # Empty-team tokens should filter by public + owned, not by personal team
-    if not is_empty_team_token:
-        team_id = team_id or token_team_id
+    # For listing, only narrow by team_id when explicitly requested via query param.
+    # Do NOT auto-narrow to token's single team; token_teams handles visibility scoping.
 
     # Use unified list_tools() with token-based team filtering
     # Always apply visibility filtering based on token scope
@@ -4374,21 +4400,17 @@ async def list_resources(
         token_teams = []  # Non-admin without teams = public-only (secure default)
 
     # Check team_id from request.state (set during auth)
-    # Only use for non-empty-team tokens; empty-team tokens should rely on visibility filtering
     token_team_id = getattr(request.state, "team_id", None)
-    is_empty_team_token = token_teams is not None and len(token_teams) == 0
 
     # Check for team ID mismatch (only applies when both are specified and token has teams)
-    if team_id is not None and token_team_id is not None and team_id != token_team_id and not is_empty_team_token:
+    if team_id is not None and token_team_id is not None and team_id != token_team_id:
         return ORJSONResponse(
             content={"message": "Access issue: This API token does not have the required permissions for this team."},
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    # Determine final team ID - don't use token_team_id for empty-team tokens
-    # Empty-team tokens should filter by public + owned, not by personal team
-    if not is_empty_team_token:
-        team_id = team_id or token_team_id
+    # For listing, only narrow by team_id when explicitly requested via query param.
+    # Do NOT auto-narrow to token's single team; token_teams handles visibility scoping.
 
     # Use unified list_resources() with token-based team filtering
     # Always apply visibility filtering based on token scope
@@ -4867,21 +4889,17 @@ async def list_prompts(
         token_teams = []  # Non-admin without teams = public-only (secure default)
 
     # Check team_id from request.state (set during auth)
-    # Only use for non-empty-team tokens; empty-team tokens should rely on visibility filtering
     token_team_id = getattr(request.state, "team_id", None)
-    is_empty_team_token = token_teams is not None and len(token_teams) == 0
 
     # Check for team ID mismatch (only applies when both are specified and token has teams)
-    if team_id is not None and token_team_id is not None and team_id != token_team_id and not is_empty_team_token:
+    if team_id is not None and token_team_id is not None and team_id != token_team_id:
         return ORJSONResponse(
             content={"message": "Access issue: This API token does not have the required permissions for this team."},
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    # Determine final team ID - don't use token_team_id for empty-team tokens
-    # Empty-team tokens should filter by public + owned, not by personal team
-    if not is_empty_team_token:
-        team_id = team_id or token_team_id
+    # For listing, only narrow by team_id when explicitly requested via query param.
+    # Do NOT auto-narrow to token's single team; token_teams handles visibility scoping.
 
     # Use consolidated prompt listing with token-based team filtering
     # Always apply visibility filtering based on token scope
@@ -5365,8 +5383,8 @@ async def list_gateways(
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
-    # Determine final team ID
-    team_id = team_id or token_team_id
+    # For listing, only narrow by team_id when explicitly requested via query param.
+    # Do NOT auto-narrow to token's single team; token_teams handles visibility scoping.
 
     # SECURITY: token_teams is normalized in auth.py:
     # - None: admin bypass (is_admin=true with explicit null teams) - sees ALL resources
@@ -5932,6 +5950,30 @@ async def handle_rpc(request: Request, db: Session = Depends(get_db), user=Depen
         server_id = params.get("server_id", None)
         cursor = params.get("cursor")  # Extract cursor parameter
 
+        # RBAC: Enforce server_id scoping for server-scoped tokens.
+        # Extract token scopes once, then:
+        #   1. If request supplies server_id, validate it matches the token scope.
+        #   2. If request omits server_id but token is server-scoped, auto-inject the
+        #      token's server_id so list operations stay properly scoped (parity with
+        #      the REST middleware which denies /tools for server-scoped tokens).
+        _cached = getattr(request.state, "_jwt_verified_payload", None)
+        _jwt_payload = _cached[1] if (isinstance(_cached, tuple) and len(_cached) == 2 and isinstance(_cached[1], dict)) else None
+        _token_scopes = _jwt_payload.get("scopes", {}) if _jwt_payload else {}
+        _token_server_id = _token_scopes.get("server_id") if _token_scopes else None
+
+        if server_id:
+            if not validate_server_access(_token_scopes, server_id):
+                return ORJSONResponse(
+                    status_code=403,
+                    content={
+                        "jsonrpc": "2.0",
+                        "error": {"code": -32003, "message": f"Token not authorized for server: {server_id}"},
+                        "id": req_id,
+                    },
+                )
+        elif _token_server_id is not None:
+            server_id = _token_server_id
+
         RPCRequest(jsonrpc="2.0", method=method, params=params)  # Validate the request body against the RPCRequest model
 
         # Multi-worker session affinity: check if we should forward to another worker
@@ -5943,7 +5985,10 @@ async def handle_rpc(request: Request, db: Session = Depends(get_db), user=Depen
         # 1. MCP-Session-Id (mcp-session-id) - MCP protocol header from Streamable HTTP clients
         # 2. x-mcp-session-id - our internal header from SSE session_registry calls
         mcp_session_id = headers.get("mcp-session-id") or headers.get("x-mcp-session-id")
-        is_internally_forwarded = headers.get("x-forwarded-internally") == "true"
+        # Only trust x-forwarded-internally from loopback to prevent external spoofing
+        _rpc_client_host = request.client.host if request.client else None
+        _rpc_from_loopback = _rpc_client_host in ("127.0.0.1", "::1") if _rpc_client_host else False
+        is_internally_forwarded = _rpc_from_loopback and headers.get("x-forwarded-internally") == "true"
 
         if settings.mcpgateway_session_affinity_enabled and mcp_session_id and method != "initialize" and not is_internally_forwarded:
             # First-Party
@@ -6916,9 +6961,6 @@ async def set_log_level(request: Request, user=Depends(get_current_user_with_per
     Args:
         request: HTTP request with log level JSON body.
         user: Authenticated user.
-
-    Returns:
-        None
     """
     logger.debug(f"User {user} requested to set log level")
     body = await _read_request_json(request)
@@ -6960,7 +7002,7 @@ async def get_metrics(db: Session = Depends(get_db), user=Depends(get_current_us
         a2a_metrics = await a2a_service.aggregate_metrics(db)
         metrics_result["a2a_agents"] = a2a_metrics
 
-    return metrics_result
+    return jsonable_encoder(metrics_result)
 
 
 @metrics_router.post("/reset", response_model=dict)
@@ -7327,6 +7369,9 @@ async def export_configuration(
         # Get root path for URL construction - prefer configured APP_ROOT_PATH
         root_path = settings.app_root_path
 
+        # Derive team-scoped visibility from the requesting user's token
+        scoped_user_email, scoped_token_teams = _get_scoped_resource_access_context(request, user)
+
         # Perform export
         export_data = await export_service.export_configuration(
             db=db,
@@ -7337,6 +7382,8 @@ async def export_configuration(
             include_dependencies=include_dependencies,
             exported_by=username or "unknown",
             root_path=root_path,
+            user_email=scoped_user_email,
+            token_teams=scoped_token_teams,
         )
 
         return export_data
@@ -7352,12 +7399,13 @@ async def export_configuration(
 @export_import_router.post("/export/selective", response_model=Dict[str, Any])
 @require_permission("admin.export")
 async def export_selective_configuration(
-    entity_selections: Dict[str, List[str]] = Body(...), include_dependencies: bool = True, db: Session = Depends(get_db), user=Depends(get_current_user_with_permissions)
+    request: Request, entity_selections: Dict[str, List[str]] = Body(...), include_dependencies: bool = True, db: Session = Depends(get_db), user=Depends(get_current_user_with_permissions)
 ) -> Dict[str, Any]:
     """
     Export specific entities by their IDs/names.
 
     Args:
+        request: FastAPI request object for token scope context
         entity_selections: Dict mapping entity types to lists of IDs/names to export
         include_dependencies: Whether to include dependent entities
         db: Database session
@@ -7389,8 +7437,17 @@ async def export_selective_configuration(
         # Get root path for URL construction - prefer configured APP_ROOT_PATH
         root_path = settings.app_root_path
 
+        # Derive team-scoped visibility from the requesting user's token
+        scoped_user_email, scoped_token_teams = _get_scoped_resource_access_context(request, user)
+
         export_data = await export_service.export_selective(
-            db=db, entity_selections=entity_selections, include_dependencies=include_dependencies, exported_by=username or "unknown", root_path=root_path
+            db=db,
+            entity_selections=entity_selections,
+            include_dependencies=include_dependencies,
+            exported_by=username or "unknown",
+            root_path=root_path,
+            user_email=scoped_user_email,
+            token_teams=scoped_token_teams,
         )
 
         return export_data
