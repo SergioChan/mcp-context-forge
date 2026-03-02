@@ -18407,3 +18407,12 @@ class TestPublicVisibilityGuard:
         # No team_id → guard should not fire even with flag=false
         result = await admin_create_grpc_service(service, mock_request, mock_db, user={"email": "u@e.com", "db": mock_db})
         assert result.status_code == 201
+
+
+def test_ui_base_path_returns_settings_value():
+    """Test _ui_base_path() returns the configured value from settings."""
+    from mcpgateway.admin import _ui_base_path
+    from mcpgateway.config import settings
+
+    result = _ui_base_path()
+    assert result == settings.mcpgateway_ui_base_path
