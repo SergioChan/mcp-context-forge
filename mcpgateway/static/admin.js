@@ -818,7 +818,7 @@ function _navigateAdmin(fragment, searchParams) {
         const isPaginationParam =
             key.endsWith("_page") ||
             key.endsWith("_size") ||
-            key.endsWith("_inactive") ||
+            (key.endsWith("_inactive") && key !== "include_inactive") ||
             key.endsWith("_q") ||
             key.endsWith("_tags");
         if (isPaginationParam && !searchParams.has(key)) {
