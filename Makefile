@@ -5420,6 +5420,20 @@ compose-scale:
 		echo "Usage: make compose-scale SERVICE=worker SCALE=3"; exit 1; }
 	$(COMPOSE) up -d --scale $(SERVICE)=$(SCALE)
 
+
+# help: compose-cache-clear  - Clear nginx cache volume
+.PHONY: compose-cache-clear
+compose-cache-clear:						## 🧹 Clear nginx cache volume
+	@echo "🧹 Clearing nginx cache volume..."
+	@docker volume rm mcp-context-forge_nginx_cache 2>/dev/null || true
+	@echo "✅ Nginx cache volume removed (will be recreated on next compose-up)"
+
+# help: compose-refresh      - Full refresh: down, clear cache, up
+# .PHONY: compose-refresh
+# compose-refresh: compose-down compose-cache-clear compose-up  ## 🔄 Full refresh with cache clear
+# 	@echo "✅ Full refresh complete (containers restarted with fresh cache)"
+
+
 # Compose with validation and health check
 .PHONY: compose-up-safe
 compose-up-safe: compose-validate compose-up
