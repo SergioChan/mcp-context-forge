@@ -147,35 +147,6 @@ mcp-context-forge/
 
 
 
-### Nginx Cache Management
-
-When developing with Docker Compose, the nginx cache persists across container restarts. After rebuilding the gateway image with code changes, you must clear the cache to see updates.
-
-```bash
-# After making code changes and rebuilding
-make docker-prod                    # Rebuild gateway image
-make compose-down                   # Stop containers
-make compose-cache-clear            # Clear nginx cache volume
-make compose-up                     # Start with fresh cache
-
-# Alternative: Clear cache while running
-docker exec $(docker ps -qf name=nginx) sh -c "rm -rf /var/cache/nginx/*"
-docker-compose restart nginx
-
-# For development without cache issues
-# Use port 4444 directly (bypasses nginx)
-# Uncomment in docker-compose.yml:
-#   gateway:
-#     ports:
-#       - "4444:4444"
-```
-
-**Why this is needed:**
-- The `nginx_cache` named volume persists across `compose-down`/`compose-up`
-- Static assets (CSS/JS) are cached for 30 days
-- Admin UI pages are cached for 5 seconds
-- API responses are cached for 5 minutes
-- Without clearing cache, you'll see stale content after code changes
 
 
 ### Key Components
@@ -245,6 +216,39 @@ make pre-commit-install
 make pre-commit
 
 # Complete quality pipeline (recommended before commits)
+
+
+### Nginx Cache Management
+
+When developing with Docker Compose, the nginx cache persists across container restarts. After rebuilding the gateway image with code changes, you must clear the cache to see updates.
+
+```bash
+# After making code changes and rebuilding
+make docker-prod                    # Rebuild gateway image
+make compose-down                   # Stop containers
+make compose-cache-clear            # Clear nginx cache (stops nginx if running)
+make compose-up                     # Start with fresh cache
+
+# Alternative: Clear cache while containers are running
+docker exec $(docker ps -qf name=nginx) sh -c "rm -rf /var/cache/nginx/*"
+docker-compose restart nginx
+
+# For development without cache issues
+# Use port 4444 directly (bypasses nginx)
+# Uncomment in docker-compose.yml:
+#   gateway:
+#     ports:
+#       - "4444:4444"
+```
+
+**Why this is needed:**
+- The `nginx_cache` named volume persists across `compose-down`/`compose-up`
+- Static assets (CSS/JS) are cached for 30 days
+- Admin UI pages are cached for 5 seconds
+- API responses are cached for 5 minutes
+- Without clearing cache, you'll see stale content after code changes
+
+
 make autoflake isort black pre-commit
 make doctest test htmlcov smoketest
 make flake8 bandit interrogate pylint verify

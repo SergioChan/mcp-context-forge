@@ -5421,12 +5421,22 @@ compose-scale:
 	$(COMPOSE) up -d --scale $(SERVICE)=$(SCALE)
 
 
-# help: compose-cache-clear  - Clear nginx cache volume
+# help: compose-cache-clear  - Clear nginx cache (stops nginx if running)
 .PHONY: compose-cache-clear
-compose-cache-clear:						## 🧹 Clear nginx cache volume
-	@echo "🧹 Clearing nginx cache volume..."
-	@docker volume rm mcp-context-forge_nginx_cache 2>/dev/null || true
-	@echo "✅ Nginx cache volume removed (will be recreated on next compose-up)"
+compose-cache-clear:						## 🧹 Clear nginx cache
+	@echo "🧹 Clearing nginx cache..."
+	@if docker ps --format '{{.Names}}' | grep -q nginx; then \
+		echo "   Stopping nginx container..."; \
+		$(COMPOSE) stop nginx; \
+		echo "   Clearing cache files..."; \
+		docker exec $$(docker ps -aqf name=nginx) sh -c "rm -rf /var/cache/nginx/*" 2>/dev/null || true; \
+		echo "   Starting nginx container..."; \
+		$(COMPOSE) start nginx; \
+	else \
+		echo "   Nginx not running, clearing cache files in stopped container..."; \
+		docker exec $$(docker ps -aqf name=nginx) sh -c "rm -rf /var/cache/nginx/*" 2>/dev/null || true; \
+	fi
+	@echo "✅ Nginx cache cleared"
 
 # help: compose-refresh      - Full refresh: down, clear cache, up
 # .PHONY: compose-refresh
