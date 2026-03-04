@@ -16611,8 +16611,9 @@ function setupFormValidation() {
 
     forms.forEach((form) => {
         // Add validation to name fields
+        // Target only the actual technical name inputs (avoid matching displayName)
         const nameFields = form.querySelectorAll(
-            'input[name*="name"], input[name*="Name"]',
+            'input[name="name"], input[name="customName"], input[name="custom_name"]',
         );
         nameFields.forEach((field) => {
             field.addEventListener("blur", function () {
