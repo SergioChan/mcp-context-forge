@@ -220,33 +220,42 @@ make pre-commit
 
 ### Nginx Cache Management
 
-When developing with Docker Compose, the nginx cache persists across container restarts. After rebuilding the gateway image with code changes, you must clear the cache to see updates.
+The nginx cache in docker-compose is **ephemeral** (not persisted to a volume) for local development. This means the cache is automatically cleared when containers are restarted, eliminating stale content issues after rebuilding the gateway.
 
 ```bash
-# After making code changes and rebuilding
+# Standard development workflow (cache auto-clears on restart)
 make docker-prod                    # Rebuild gateway image
-make compose-down                   # Stop containers
-make compose-cache-clear            # Clear nginx cache (stops nginx if running)
+make compose-down                   # Stop containers (cache cleared automatically)
 make compose-up                     # Start with fresh cache
 
-# Alternative: Clear cache while containers are running
+# Manual cache clearing (if needed while containers are running)
+make compose-cache-clear            # Stops nginx, clears cache, restarts nginx
+
+# Alternative: Clear cache manually
 docker exec $(docker ps -qf name=nginx) sh -c "rm -rf /var/cache/nginx/*"
 docker-compose restart nginx
 
-# For development without cache issues
-# Use port 4444 directly (bypasses nginx)
+# For development without nginx proxy
+# Use port 4444 directly (bypasses nginx and cache)
 # Uncomment in docker-compose.yml:
 #   gateway:
 #     ports:
 #       - "4444:4444"
 ```
 
-**Why this is needed:**
-- The `nginx_cache` named volume persists across `compose-down`/`compose-up`
-- Static assets (CSS/JS) are cached for 30 days
-- Admin UI pages are cached for 5 seconds
-- API responses are cached for 5 minutes
-- Without clearing cache, you'll see stale content after code changes
+**Cache behavior:**
+- **Ephemeral storage**: Cache exists only in container's writable layer
+- **Auto-cleared**: Lost when container stops/restarts/recreates
+- **Static assets**: Cached for 30 days (while container runs)
+- **API responses**: Cached for 5 minutes
+- **Admin UI pages**: Cached for 5 seconds
+
+**For production deployments:**
+Uncomment the nginx_cache volume in docker-compose.yml to persist cache across restarts:
+```yaml
+volumes:
+  - nginx_cache:/var/cache/nginx    # Persistent cache storage
+```
 
 
 make autoflake isort black pre-commit
