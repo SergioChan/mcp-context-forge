@@ -5438,10 +5438,6 @@ compose-cache-clear:						## 🧹 Clear nginx cache
 	fi
 	@echo "✅ Nginx cache cleared"
 
-# help: compose-refresh      - Full refresh: down, clear cache, up
-# .PHONY: compose-refresh
-# compose-refresh: compose-down compose-cache-clear compose-up  ## 🔄 Full refresh with cache clear
-# 	@echo "✅ Full refresh complete (containers restarted with fresh cache)"
 
 
 # Compose with validation and health check
