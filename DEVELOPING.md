@@ -3,6 +3,7 @@
 This guide provides comprehensive information for developers working on ContextForge project.
 
 ## Table of Contents
+
 - [Quick Start](#quick-start)
 - [Development Setup](#development-setup)
 - [Project Architecture](#project-architecture)
@@ -145,13 +146,10 @@ mcp-context-forge/
 - **Caching**: Redis (optional)
 - **Observability**: OpenTelemetry
 
-
-
-
-
 ### Key Components
 
 #### 1. Core Services
+
 - **GatewayService**: Manages federation and peer discovery
 - **ServerService**: Handles virtual server composition
 - **ToolService**: Tool registry and invocation
@@ -159,12 +157,14 @@ mcp-context-forge/
 - **AuthService**: JWT authentication and authorization
 
 #### 2. Transport Layers
+
 - **SSE Transport**: Server-Sent Events for streaming
 - **WebSocket Transport**: Bidirectional real-time communication
 - **HTTP Transport**: Standard JSON-RPC over HTTP
 - **Stdio Wrapper**: Bridge for stdio-based MCP clients
 
 #### 3. Plugin System
+
 - **Hook-based**: Pre/post request/response hooks
 - **Filters**: PII, deny-list, regex, resource filtering
 - **Custom plugins**: Extensible framework for custom logic
@@ -208,7 +208,7 @@ make lint-fix
 
 ### Pre-commit Workflow
 
-```bash
+````bash
 # Install git hooks
 make pre-commit-install
 
@@ -241,9 +241,10 @@ docker-compose restart nginx
 #   gateway:
 #     ports:
 #       - "4444:4444"
-```
+````
 
 **Cache behavior:**
+
 - **Ephemeral storage**: Cache exists only in container's writable layer
 - **Auto-cleared**: Lost when container stops/restarts/recreates
 - **Static assets**: Cached for 30 days (while container runs)
@@ -252,16 +253,17 @@ docker-compose restart nginx
 
 **For production deployments:**
 Uncomment the nginx_cache volume in docker-compose.yml to persist cache across restarts:
+
 ```yaml
 volumes:
-  - nginx_cache:/var/cache/nginx    # Persistent cache storage
+    - nginx_cache:/var/cache/nginx # Persistent cache storage
 ```
-
 
 make autoflake isort black pre-commit
 make doctest test htmlcov smoketest
 make flake8 bandit interrogate pylint verify
-```
+
+````
 
 ## Code Quality
 
@@ -296,7 +298,7 @@ make doctest            # Test code examples
 
 # All checks
 make verify             # Run all quality checks
-```
+````
 
 ## Database Management
 
@@ -424,13 +426,13 @@ version: 1.0.0
 description: Custom plugin for X functionality
 enabled: true
 hooks:
-  - type: pre_request
-    handler: my_plugin.hooks:pre_request_hook
-  - type: post_response
-    handler: my_plugin.hooks:post_response_hook
+    - type: pre_request
+      handler: my_plugin.hooks:pre_request_hook
+    - type: post_response
+      handler: my_plugin.hooks:post_response_hook
 config:
-  setting1: value1
-  setting2: value2
+    setting1: value1
+    setting2: value2
 ```
 
 ```python
@@ -458,10 +460,10 @@ async def post_response_hook(response: Dict[str, Any], config: Dict[str, Any]) -
 ```yaml
 # plugins/config.yaml
 plugins:
-  - path: plugins/my_plugin
-    enabled: true
-    config:
-      custom_setting: value
+    - path: plugins/my_plugin
+      enabled: true
+      config:
+          custom_setting: value
 ```
 
 ```bash
