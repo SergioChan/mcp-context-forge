@@ -110,6 +110,9 @@ _PERMISSION_PATTERNS: List[Tuple[str, Pattern[str], str]] = [
     ("POST", re.compile(r"^/gateways/[^/]+/"), Permissions.GATEWAYS_UPDATE),  # POST to sub-resources (state, toggle, refresh)
     ("PUT", re.compile(r"^/gateways/[^/]+(?:$|/)"), Permissions.GATEWAYS_UPDATE),
     ("DELETE", re.compile(r"^/gateways/[^/]+(?:$|/)"), Permissions.GATEWAYS_DELETE),
+    # Metrics permissions
+    ("GET", re.compile(r"^/metrics(?:$|/)"), Permissions.ADMIN_METRICS),
+    ("POST", re.compile(r"^/metrics/reset(?:$|/)"), Permissions.ADMIN_METRICS),
     # Token permissions
     ("GET", re.compile(r"^/tokens(?:$|/)"), Permissions.TOKENS_READ),
     ("POST", re.compile(r"^/tokens/?$"), Permissions.TOKENS_CREATE),  # Only exact /tokens or /tokens/
@@ -1153,7 +1156,6 @@ class TokenScopingMiddleware:
             # Skip scoping for certain paths (truly public endpoints only)
             skip_paths = [
                 "/health",
-                "/metrics",
                 "/openapi.json",
                 "/docs",
                 "/redoc",
