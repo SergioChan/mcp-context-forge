@@ -645,7 +645,7 @@ class TestMetricsSetup:
                 return None
 
         app = FastAPI()
-        monkeypatch.setenv("ENABLE_METRICS", "true")
+        monkeypatch.setattr(metrics_module.settings, "ENABLE_METRICS", True)
         monkeypatch.setenv("METRICS_CUSTOM_LABELS", "")
         monkeypatch.setattr(metrics_module.settings, "database_url", db_url)
         monkeypatch.setattr(metrics_module.settings, "METRICS_EXCLUDED_HANDLERS", "")
@@ -670,7 +670,7 @@ class TestMetricsSetup:
         from mcpgateway.services import metrics as metrics_module
 
         app = FastAPI()
-        monkeypatch.setenv("ENABLE_METRICS", "false")
+        monkeypatch.setattr(metrics_module.settings, "ENABLE_METRICS", False)
 
         metrics_module.setup_metrics(app)
 
@@ -710,7 +710,7 @@ class TestMetricsSetup:
                 return None
 
         app = FastAPI()
-        monkeypatch.setenv("ENABLE_METRICS", "true")
+        monkeypatch.setattr(metrics_module.settings, "ENABLE_METRICS", True)
         monkeypatch.setattr(metrics_module.settings, "database_url", "sqlite:///./test.db")
         monkeypatch.setattr(metrics_module.settings, "METRICS_EXCLUDED_HANDLERS", "")
         monkeypatch.setattr(metrics_module, "Gauge", DummyGauge)
