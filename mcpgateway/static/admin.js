@@ -19923,7 +19923,10 @@ async function toggleInputMask(inputOrId, button) {
             button.disabled = false;
             button.textContent = originalText;
             // Re-check — realValue should now be populated
-            if (!input.dataset.realValue || input.dataset.realValue.trim() === "") {
+            if (
+                !input.dataset.realValue ||
+                input.dataset.realValue.trim() === ""
+            ) {
                 button.title = "No credentials stored for this field.";
                 button.classList.add("cursor-not-allowed", "opacity-50");
                 return;
