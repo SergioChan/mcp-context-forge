@@ -6534,7 +6534,7 @@ async function viewServer(serverId) {
                     toolsList.appendChild(toolItem);
                 });
 
-                // If more than maxToShow, add a summary badge
+                // If more than maxToShow, add a summary badge (clickable to expand)
                 if (server.associatedTools.length > maxToShow) {
                     const moreItem = document.createElement("div");
                     moreItem.className = "flex items-center space-x-2";
@@ -6545,6 +6545,32 @@ async function viewServer(serverId) {
                     moreBadge.title = "Total tools associated";
                     const remaining = server.associatedTools.length - maxToShow;
                     moreBadge.textContent = `+${remaining} more`;
+
+                    // Expand inline to show full list when clicked
+                    moreBadge.addEventListener("click", () => {
+                        toolsList.innerHTML = "";
+                        (server.associatedTools || []).forEach((toolId) => {
+                            const toolItem = document.createElement("div");
+                            toolItem.className = "flex items-center space-x-2";
+
+                            const toolBadge = document.createElement("span");
+                            toolBadge.className =
+                                "inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full dark:bg-green-900 dark:text-green-200";
+                            toolBadge.textContent =
+                                window.toolMapping && window.toolMapping[toolId]
+                                    ? window.toolMapping[toolId]
+                                    : toolId;
+
+                            const toolIdSpan = document.createElement("span");
+                            toolIdSpan.className =
+                                "text-xs text-gray-500 dark:text-gray-400";
+                            toolIdSpan.textContent = `(${toolId})`;
+
+                            toolItem.appendChild(toolBadge);
+                            toolItem.appendChild(toolIdSpan);
+                            toolsList.appendChild(toolItem);
+                        });
+                    });
 
                     moreItem.appendChild(moreBadge);
                     toolsList.appendChild(moreItem);
@@ -6600,7 +6626,7 @@ async function viewServer(serverId) {
                     resourcesList.appendChild(resourceItem);
                 });
 
-                // If more than maxToShow, add a summary badge
+                // If more than maxToShow, add a summary badge (clickable to expand)
                 if (server.associatedResources.length > maxToShow) {
                     const moreItem = document.createElement("div");
                     moreItem.className = "flex items-center space-x-2";
@@ -6612,6 +6638,31 @@ async function viewServer(serverId) {
                     const remaining =
                         server.associatedResources.length - maxToShow;
                     moreBadge.textContent = `+${remaining} more`;
+
+                    moreBadge.addEventListener("click", () => {
+                        resourcesList.innerHTML = "";
+                        (server.associatedResources || []).forEach((resourceId) => {
+                            const resourceItem = document.createElement("div");
+                            resourceItem.className = "flex items-center space-x-2";
+
+                            const resourceBadge = document.createElement("span");
+                            resourceBadge.className =
+                                "inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full dark:bg-blue-900 dark:text-blue-200";
+                            resourceBadge.textContent =
+                                window.resourceMapping && window.resourceMapping[resourceId]
+                                    ? window.resourceMapping[resourceId]
+                                    : `Resource ${resourceId}`;
+
+                            const resourceIdSpan = document.createElement("span");
+                            resourceIdSpan.className =
+                                "text-xs text-gray-500 dark:text-gray-400";
+                            resourceIdSpan.textContent = `(${resourceId})`;
+
+                            resourceItem.appendChild(resourceBadge);
+                            resourceItem.appendChild(resourceIdSpan);
+                            resourcesList.appendChild(resourceItem);
+                        });
+                    });
 
                     moreItem.appendChild(moreBadge);
                     resourcesList.appendChild(moreItem);
@@ -6666,7 +6717,7 @@ async function viewServer(serverId) {
                     promptsList.appendChild(promptItem);
                 });
 
-                // If more than maxToShow, add a summary badge
+                // If more than maxToShow, add a summary badge (clickable to expand)
                 if (server.associatedPrompts.length > maxToShow) {
                     const moreItem = document.createElement("div");
                     moreItem.className = "flex items-center space-x-2";
@@ -6678,6 +6729,31 @@ async function viewServer(serverId) {
                     const remaining =
                         server.associatedPrompts.length - maxToShow;
                     moreBadge.textContent = `+${remaining} more`;
+
+                    moreBadge.addEventListener("click", () => {
+                        promptsList.innerHTML = "";
+                        (server.associatedPrompts || []).forEach((promptId) => {
+                            const promptItem = document.createElement("div");
+                            promptItem.className = "flex items-center space-x-2";
+
+                            const promptBadge = document.createElement("span");
+                            promptBadge.className =
+                                "inline-block bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full dark:bg-purple-900 dark:text-purple-200";
+                            promptBadge.textContent =
+                                window.promptMapping && window.promptMapping[promptId]
+                                    ? window.promptMapping[promptId]
+                                    : `Prompt ${promptId}`;
+
+                            const promptIdSpan = document.createElement("span");
+                            promptIdSpan.className =
+                                "text-xs text-gray-500 dark:text-gray-400";
+                            promptIdSpan.textContent = `(${promptId})`;
+
+                            promptItem.appendChild(promptBadge);
+                            promptItem.appendChild(promptIdSpan);
+                            promptsList.appendChild(promptItem);
+                        });
+                    });
 
                     moreItem.appendChild(moreBadge);
                     promptsList.appendChild(moreItem);
