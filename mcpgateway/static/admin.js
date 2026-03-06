@@ -6649,7 +6649,7 @@ async function viewServer(serverId) {
                             resourceBadge.className =
                                 "inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full dark:bg-blue-900 dark:text-blue-200";
                             resourceBadge.textContent =
-                                window.resourceMapping && window.resourceMapping[resourceId]
+                                (window.resourceMapping && window.resourceMapping[resourceId])
                                     ? window.resourceMapping[resourceId]
                                     : `Resource ${resourceId}`;
 
@@ -6740,7 +6740,7 @@ async function viewServer(serverId) {
                             promptBadge.className =
                                 "inline-block bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full dark:bg-purple-900 dark:text-purple-200";
                             promptBadge.textContent =
-                                window.promptMapping && window.promptMapping[promptId]
+                                (window.promptMapping && window.promptMapping[promptId])
                                     ? window.promptMapping[promptId]
                                     : `Prompt ${promptId}`;
 
