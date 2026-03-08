@@ -3370,7 +3370,7 @@ class TestUtilityFunctions:
             await main_mod._authenticate_websocket_user(websocket)
 
         assert exc_info.value.status_code == 403
-        assert exc_info.value.detail == "Insufficient permissions"
+        assert exc_info.value.detail == "Access denied"
 
     @pytest.mark.asyncio
     async def test_websocket_bearer_auth_invalid_token_closes(self, monkeypatch):
@@ -4128,7 +4128,7 @@ class TestRpcHandling:
         with patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=False)):
             result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
             assert result["error"]["code"] == -32003
-            assert "admin.system_config" in result["error"]["message"]
+            assert "Access denied" in result["error"]["message"]
 
     async def test_handle_rpc_roots_list_requires_admin_permission(self):
         payload = {"jsonrpc": "2.0", "id": "roots-2", "method": "roots/list", "params": {}}
@@ -4292,7 +4292,7 @@ class TestRpcHandling:
             result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
 
         assert result["error"]["code"] == -32003
-        assert "tools.execute" in result["error"]["message"]
+        assert "Access denied" in result["error"]["message"]
         invoke_tool.assert_not_awaited()
 
     async def test_handle_rpc_backward_compat_tool_requires_execute_permission(self):
@@ -4307,7 +4307,7 @@ class TestRpcHandling:
             result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
 
         assert result["error"]["code"] == -32003
-        assert "tools.execute" in result["error"]["message"]
+        assert "Access denied" in result["error"]["message"]
         invoke_tool.assert_not_awaited()
 
     async def test_handle_rpc_backward_compat_tool_allows_when_authorized(self):
@@ -4412,7 +4412,7 @@ class TestRpcHandling:
         ):
             result = await handle_rpc(request_logging, db=MagicMock(), user={"email": "user@example.com"})
             assert result["error"]["code"] == -32003
-            assert "admin.system_config" in result["error"]["message"]
+            assert "Access denied" in result["error"]["message"]
             set_level.assert_not_awaited()
 
     async def test_handle_rpc_logging_set_level_populates_email_when_missing(self):
@@ -4808,7 +4808,7 @@ class TestRpcHandling:
 
         result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
         assert result["error"]["code"] == -32003
-        assert "ownership mismatch" in result["error"]["message"].lower()
+        assert result["error"]["message"] == "Access denied"
 
     async def test_handle_rpc_initialize_claims_unowned_session(self, monkeypatch):
         payload = {"jsonrpc": "2.0", "id": "aff-init-claim", "method": "initialize", "params": {"session_id": "init-2"}}
@@ -4833,7 +4833,7 @@ class TestRpcHandling:
 
         result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
         assert result["error"]["code"] == -32003
-        assert "ownership unavailable" in result["error"]["message"].lower()
+        assert result["error"]["message"] == "Access denied"
 
     async def test_handle_rpc_list_tools_legacy_token_teams_none_becomes_public_only(self):
         """Cover legacy list_tools branch when token_teams is explicitly None for non-admin."""
@@ -6818,6 +6818,246 @@ async def test_handle_rpc_completion_direct_non_admin_none_teams_becomes_public_
     assert result["result"] == {"done": True}
     assert completion_mock.await_args.kwargs["user_email"] == "viewer@example.com"
     assert completion_mock.await_args.kwargs["token_teams"] == []
+
+
+class TestRpcScopedPermissions:
+    """Verify token scopes.permissions are enforced per RPC method (#3422)."""
+
+    @staticmethod
+    def _make_request(payload: dict, scoped_permissions: list | None = None) -> MagicMock:
+        """Build mock request with optional scoped permissions in JWT payload."""
+        request = MagicMock(spec=Request)
+        request.body = AsyncMock(return_value=json.dumps(payload).encode())
+        request.headers = {}
+        request.query_params = {}
+        request.state = MagicMock()
+        # Simulate JWT payload cached by verify_credentials middleware
+        if scoped_permissions is not None:
+            jwt_payload = {
+                "sub": "user@example.com",
+                "scopes": {"permissions": scoped_permissions},
+            }
+            request.state._jwt_verified_payload = ("fake-token", jwt_payload)
+        else:
+            request.state._jwt_verified_payload = None
+        return request
+
+    async def test_tools_list_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied tools/list."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_tools_list_allowed_with_tools_read_scope(self):
+        """Token with tools.read scope should be allowed tools/list."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use", "tools.read"])
+
+        tool = MagicMock()
+        tool.model_dump.return_value = {"id": "tool-1"}
+
+        with (
+            patch("mcpgateway.main.tool_service.list_tools", new=AsyncMock(return_value=([tool], None))),
+            patch("mcpgateway.main._get_rpc_filter_context", return_value=("user@example.com", None, False)),
+            patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=True)),
+        ):
+            result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+            assert "error" not in result
+
+    async def test_tools_list_allowed_with_wildcard_scope(self):
+        """Token with wildcard scope should be allowed everything."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["*"])
+
+        tool = MagicMock()
+        tool.model_dump.return_value = {"id": "tool-1"}
+
+        with (
+            patch("mcpgateway.main.tool_service.list_tools", new=AsyncMock(return_value=([tool], None))),
+            patch("mcpgateway.main._get_rpc_filter_context", return_value=("user@example.com", None, False)),
+            patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=True)),
+        ):
+            result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+            assert "error" not in result
+
+    async def test_tools_list_allowed_with_no_scoped_permissions(self):
+        """Token with empty scopes (defer to RBAC) should be allowed."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=[])
+
+        tool = MagicMock()
+        tool.model_dump.return_value = {"id": "tool-1"}
+
+        with (
+            patch("mcpgateway.main.tool_service.list_tools", new=AsyncMock(return_value=([tool], None))),
+            patch("mcpgateway.main._get_rpc_filter_context", return_value=("user@example.com", None, False)),
+            patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=True)),
+        ):
+            result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+            assert "error" not in result
+
+    async def test_tools_list_allowed_with_no_jwt_payload(self):
+        """Session tokens without cached JWT payload should defer to RBAC."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=None)
+
+        tool = MagicMock()
+        tool.model_dump.return_value = {"id": "tool-1"}
+
+        with (
+            patch("mcpgateway.main.tool_service.list_tools", new=AsyncMock(return_value=([tool], None))),
+            patch("mcpgateway.main._get_rpc_filter_context", return_value=("user@example.com", None, False)),
+            patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=True)),
+        ):
+            result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+            assert "error" not in result
+
+    async def test_resources_list_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied resources/list."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "resources/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_resources_read_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied resources/read."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "resource://x"}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_prompts_list_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied prompts/list."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "prompts/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_prompts_get_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied prompts/get."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "test"}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_list_gateways_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied list_gateways."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "list_gateways", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_tools_call_denied_with_tools_read_only(self):
+        """Token with tools.read but not tools.execute should be denied tools/call."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "test", "arguments": {}}}
+        request = self._make_request(payload, scoped_permissions=["servers.use", "tools.read"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_resources_templates_list_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied resources/templates/list."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "resources/templates/list", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_completion_complete_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied completion/complete."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "completion/complete", "params": {"ref": {}, "argument": {}}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_tools_list_allowed_with_non_dict_jwt_payload(self):
+        """Cached JWT payload that is not a dict should defer to RBAC."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = MagicMock(spec=Request)
+        request.body = AsyncMock(return_value=json.dumps(payload).encode())
+        request.headers = {}
+        request.query_params = {}
+        request.state = MagicMock()
+        # Simulate a non-dict payload (e.g. a string or None)
+        request.state._jwt_verified_payload = ("fake-token", "not-a-dict")
+
+        tool = MagicMock()
+        tool.model_dump.return_value = {"id": "tool-1"}
+
+        with (
+            patch("mcpgateway.main.tool_service.list_tools", new=AsyncMock(return_value=([tool], None))),
+            patch("mcpgateway.main._get_rpc_filter_context", return_value=("user@example.com", None, False)),
+            patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=True)),
+        ):
+            result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+            assert "error" not in result
+
+    async def test_tools_list_allowed_with_empty_scopes_dict(self):
+        """JWT payload where scopes is an empty dict should defer to RBAC."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        request = MagicMock(spec=Request)
+        request.body = AsyncMock(return_value=json.dumps(payload).encode())
+        request.headers = {}
+        request.query_params = {}
+        request.state = MagicMock()
+        # Simulate JWT with empty scopes dict (no permissions key)
+        jwt_payload = {"sub": "user@example.com", "scopes": {}}
+        request.state._jwt_verified_payload = ("fake-token", jwt_payload)
+
+        tool = MagicMock()
+        tool.model_dump.return_value = {"id": "tool-1"}
+
+        with (
+            patch("mcpgateway.main.tool_service.list_tools", new=AsyncMock(return_value=([tool], None))),
+            patch("mcpgateway.main._get_rpc_filter_context", return_value=("user@example.com", None, False)),
+            patch("mcpgateway.main.PermissionChecker.has_permission", new=AsyncMock(return_value=True)),
+        ):
+            result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+            assert "error" not in result
+
+    async def test_list_roots_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied list_roots."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "list_roots", "params": {}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_resources_subscribe_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied resources/subscribe."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "resources/subscribe", "params": {"uri": "resource://x"}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
+
+    async def test_logging_set_level_denied_with_servers_use_only(self):
+        """Token scoped to servers.use only should be denied logging/setLevel."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "logging/setLevel", "params": {"level": "error"}}
+        request = self._make_request(payload, scoped_permissions=["servers.use"])
+
+        result = await handle_rpc(request, db=MagicMock(), user={"email": "user@example.com"})
+        assert result["error"]["code"] == -32003
+        assert "Access denied" in result["error"]["message"]
 
 
 @pytest.fixture

@@ -62,6 +62,7 @@ from starlette.types import Receive, Scope, Send
 from mcpgateway.common.models import LogLevel
 from mcpgateway.config import settings
 from mcpgateway.db import SessionLocal
+from mcpgateway.middleware.rbac import _ACCESS_DENIED_MSG
 from mcpgateway.services.completion_service import CompletionService
 from mcpgateway.services.logging_service import LoggingService
 from mcpgateway.services.oauth_manager import OAuthEnforcementUnavailableError, OAuthRequiredError
@@ -80,6 +81,9 @@ logger = logging_service.get_logger(__name__)
 
 # Precompiled regex for server ID extraction from path
 _SERVER_ID_RE: Pattern[str] = re.compile(r"/servers/(?P<server_id>[a-fA-F0-9\-]+)/mcp")
+
+# ASGI scope key for propagating gateway context from middleware to MCP handlers
+_MCPGATEWAY_CONTEXT_KEY = "_mcpgateway_context"
 
 # Initialize ToolService, PromptService, ResourceService, CompletionService and MCP Server
 tool_service: ToolService = ToolService()
@@ -478,7 +482,7 @@ def _should_enforce_streamable_rbac(user_context: Optional[dict[str, Any]]) -> b
     Returns:
         bool: ``True`` when permission checks should be enforced for this request.
     """
-    return isinstance(user_context, dict) and "is_authenticated" in user_context
+    return isinstance(user_context, dict) and user_context.get("is_authenticated", False) is True
 
 
 def _build_resource_metadata_url(scope: Scope, server_id: str) -> str:
@@ -615,16 +619,40 @@ async def _check_streamable_permission(
     try:
         async with get_db() as db:
             permission_service = PermissionService(db)
-            return await permission_service.check_permission(
+            granted = await permission_service.check_permission(
                 user_email=user_email,
                 permission=permission,
                 token_teams=user_context.get("teams"),
                 allow_admin_bypass=allow_admin_bypass,
                 check_any_team=check_any_team,
             )
+            if not granted:
+                logger.warning("Streamable HTTP RBAC denied: user=%s, permission=%s", user_email, permission)
+            return granted
     except Exception as exc:
         logger.warning("Streamable HTTP RBAC check failed for %s / %s: %s", user_email, permission, exc)
         return False
+
+
+def _check_scoped_permission(user_context: dict[str, Any], permission: str) -> bool:
+    """Check if token scoped permissions allow this operation.
+
+    Args:
+        user_context: User context dict (may contain 'scoped_permissions' key).
+        permission: Permission to check.
+
+    Returns:
+        True if allowed (no scope cap, wildcard, or permission present).
+    """
+    scoped = user_context.get("scoped_permissions")
+    if not scoped:  # None or empty list = defer to RBAC
+        return True
+    if "*" in scoped:
+        return True
+    allowed = permission in scoped
+    if not allowed:
+        logger.warning("Streamable HTTP token scope denied: user=%s, required=%s", user_context.get("email"), permission)
+    return allowed
 
 
 def set_shared_session_registry(session_registry: Any) -> None:
@@ -962,12 +990,20 @@ async def call_tool(name: str, arguments: dict) -> Union[
         await _check_server_oauth_enforcement(server_id, user_context)
 
     if _should_enforce_streamable_rbac(user_context):
+        # Layer 1: Token scope cap
+        if not _check_scoped_permission(user_context, "tools.execute"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
+        # Layer 2: RBAC check
+        # Session tokens have no explicit team_id; check across all team-scoped roles.
+        # Mirrors the @require_permission decorator's check_any_team fallback (rbac.py:562-576).
+        _is_session_token = user_context.get("token_use") == "session"
         has_execute_permission = await _check_streamable_permission(
             user_context=user_context,
             permission="tools.execute",
+            check_any_team=_is_session_token,
         )
         if not has_execute_permission:
-            raise PermissionError("Insufficient permissions. Required: tools.execute")
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Check if we're in direct_proxy mode by looking for X-Context-Forge-Gateway-Id header
     gateway_id_from_header = extract_gateway_id_from_headers(request_headers)
@@ -1231,28 +1267,29 @@ async def call_tool(name: str, arguments: dict) -> Union[
 
 
 async def _get_request_context_or_default() -> Tuple[str, dict[str, Any], dict[str, Any]]:
-    """Retrieve request context information for the current execution.
+    """Retrieves request context information for the current execution.
 
-    This function attempts to obtain the `server_id`, request headers, and
-    user context from ContextVars (fast path). If the ContextVars contain
-    default values—indicating a stateful session where context propagation
-    may not have occurred—it falls back to extracting the information from
-    `mcp_app.request_context`.
+    This function resolves request context using the following precedence:
 
-    The fallback logic:
-    - Extracts `server_id` from the request URL path.
-    - Copies request headers from the underlying request object.
-    - Attempts to recover user context using the authorization header or
-      JWT token stored in cookies.
-
-    If recovery fails at any point, default ContextVar values are returned.
+    1. Context variables (fast path). Used when the handler executes in the
+       same async context as the middleware (for example, direct ASGI dispatch).
+    2. ASGI scope. The middleware stores resolved context on
+       ``scope[_MCPGATEWAY_CONTEXT_KEY]`` before handing off to the MCP SDK.
+       Because the SDK passes the same ``scope`` dictionary through to
+       ``mcp_app.request_context.request``, this survives task-group
+       boundaries where ContextVars may be lost.
+    3. Re-authentication fallback. Re-extracts identity from the request's
+       Authorization header or cookies. This is the most expensive path and
+       may produce a different context shape for anonymous callers (an empty
+       dictionary instead of the middleware's canonical
+       ``{"is_authenticated": False, ...}`` structure).
 
     Returns:
         Tuple[str, dict[str, Any], dict[str, Any]]: A tuple containing:
+
             - server_id: The resolved server identifier.
-            - request_headers: A dictionary of request headers.
-            - user_context: A dictionary representing the authenticated user
-              context (empty if anonymous or recovery fails).
+            - request_headers: The request headers as a dictionary.
+            - user_context: The resolved user context dictionary.
     """
     # 1. Try context vars first (fast path)
     s_id = server_id_var.get()
@@ -1261,9 +1298,31 @@ async def _get_request_context_or_default() -> Tuple[str, dict[str, Any], dict[s
     if s_id != "default_server_id":
         return s_id, request_headers_var.get(), user_context_var.get()
 
-    # 2. Fallback to mcp_app.request_context (stateful session path)
+    # 2. Try ASGI scope context injected by handle_streamable_http()
+    ctx = None
     try:
         ctx = mcp_app.request_context
+        request = ctx.request
+        if request:
+            gw_ctx = getattr(request, "scope", {}).get(_MCPGATEWAY_CONTEXT_KEY)
+            if isinstance(gw_ctx, dict):
+                return (
+                    gw_ctx.get("server_id") or s_id,
+                    gw_ctx.get("request_headers", {}),
+                    gw_ctx.get("user_context", {}),
+                )
+    except LookupError:
+        # Not in a request context — fall through to ContextVar defaults
+        return s_id, request_headers_var.get(), user_context_var.get()
+    except Exception as e:
+        logger.debug("Failed to read %s from scope: %s", _MCPGATEWAY_CONTEXT_KEY, e)
+
+    # 3. Re-authentication fallback (stateful session path)
+    try:
+        # Reuse ctx from the scope-reading block above (step 2) to avoid
+        # a redundant mcp_app.request_context lookup.
+        if ctx is None:
+            ctx = mcp_app.request_context
         request = ctx.request
         if not request:
             logger.warning("No request object found in MCP context")
@@ -1312,7 +1371,7 @@ def _normalize_jwt_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Normalize a raw JWT payload to the canonical user context shape.
 
     Converts raw JWT fields (sub, token_use, nested user.is_admin) into the
-    canonical ``{email, teams, is_admin, is_authenticated}`` dict that MCP
+    canonical ``{email, teams, is_admin, is_authenticated, token_use}`` dict that MCP
     handlers expect.  This mirrors the normalization performed by
     ``streamable_http_auth`` so that the stateful-session fallback path in
     ``_get_request_context_or_default`` returns an identical shape.
@@ -1321,7 +1380,7 @@ def _normalize_jwt_payload(payload: dict[str, Any]) -> dict[str, Any]:
         payload: Raw JWT payload dict from ``require_auth_header_first``.
 
     Returns:
-        Canonical user context dict with keys email, teams, is_admin, is_authenticated.
+        Canonical user context dict with keys email, teams, is_admin, is_authenticated, token_use.
     """
     email = payload.get("sub") or payload.get("email")
     is_admin = payload.get("is_admin", False)
@@ -1348,12 +1407,19 @@ def _normalize_jwt_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
         final_teams = normalize_token_teams(payload)
 
-    return {
+    user_ctx: dict[str, Any] = {
         "email": email,
         "teams": final_teams,
         "is_admin": is_admin,
         "is_authenticated": True,
+        "token_use": token_use,
     }
+    # Extract scoped permissions from JWT for per-method enforcement
+    scopes = payload.get("scopes") or {}
+    scoped_perms = scopes.get("permissions") or [] if isinstance(scopes, dict) else []
+    if scoped_perms:
+        user_ctx["scoped_permissions"] = scoped_perms
+    return user_ctx
 
 
 @mcp_app.list_tools()
@@ -1369,6 +1435,9 @@ async def list_tools() -> List[types.Tool]:
         A list of Tool objects containing metadata such as name, description, and input schema.
         Logs and returns an empty list on failure.
 
+    Raises:
+        PermissionError: If the caller lacks ``tools.read`` permission.
+
     Examples:
         >>> # Test list_tools function signature
         >>> import inspect
@@ -1379,6 +1448,11 @@ async def list_tools() -> List[types.Tool]:
         typing.List[mcp.types.Tool]
     """
     server_id, request_headers, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude tools.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "tools.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Extract filtering parameters from user context
     user_email = user_context.get("email") if user_context else None
@@ -1483,6 +1557,9 @@ async def list_prompts() -> List[types.Prompt]:
         A list of Prompt objects containing metadata such as name, description, and arguments.
         Logs and returns an empty list on failure.
 
+    Raises:
+        PermissionError: If the user context indicates insufficient permissions (e.g., missing "prompts.read" scope).
+
     Examples:
         >>> import inspect
         >>> sig = inspect.signature(list_prompts)
@@ -1492,6 +1569,11 @@ async def list_prompts() -> List[types.Prompt]:
         typing.List[mcp.types.Prompt]
     """
     server_id, _, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude prompts.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "prompts.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Extract filtering parameters from user context
     user_email = user_context.get("email") if user_context else None
@@ -1547,6 +1629,9 @@ async def get_prompt(prompt_id: str, arguments: dict[str, str] | None = None) ->
         GetPromptResult: Object containing the prompt messages and description.
         Returns an empty list on failure or if no prompt content is found.
 
+    Raises:
+        PermissionError: If the user context indicates insufficient permissions (e.g., missing "prompts.read" scope).
+
     Logs exceptions if any errors occur during retrieval.
 
     Examples:
@@ -1558,6 +1643,11 @@ async def get_prompt(prompt_id: str, arguments: dict[str, str] | None = None) ->
         'GetPromptResult'
     """
     server_id, _, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude prompts.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "prompts.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Extract authorization parameters from user context (same pattern as list_prompts)
     user_email = user_context.get("email") if user_context else None
@@ -1624,6 +1714,9 @@ async def list_resources() -> List[types.Resource]:
         A list of Resource objects containing metadata such as uri, name, description, and mimeType.
         Logs and returns an empty list on failure.
 
+    Raises:
+        PermissionError: If the user context indicates insufficient permissions (e.g., missing "resources.read" scope).
+
     Examples:
         >>> import inspect
         >>> sig = inspect.signature(list_resources)
@@ -1633,6 +1726,11 @@ async def list_resources() -> List[types.Resource]:
         typing.List[mcp.types.Resource]
     """
     server_id, request_headers, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude resources.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "resources.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Extract filtering parameters from user context
     user_email = user_context.get("email") if user_context else None
@@ -1728,6 +1826,9 @@ async def read_resource(resource_uri: str) -> Union[str, bytes]:
         Union[str, bytes]: The content of the resource as text or binary data.
         Returns empty string on failure or if no content is found.
 
+    Raises:
+        PermissionError: If the user does not have the required permissions to read resources.
+
     Logs exceptions if any errors occur during reading.
 
     Examples:
@@ -1739,6 +1840,11 @@ async def read_resource(resource_uri: str) -> Union[str, bytes]:
         typing.Union[str, bytes]
     """
     server_id, request_headers, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude resources.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "resources.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Extract authorization parameters from user context (same pattern as list_resources)
     user_email = user_context.get("email") if user_context else None
@@ -1860,6 +1966,9 @@ async def list_resource_templates() -> List[Dict[str, Any]]:
     Returns:
         List[types.ResourceTemplate]: A list of resource templates with their URIs and metadata.
 
+    Raises:
+        PermissionError: If the caller lacks ``resources.read`` permission.
+
     Examples:
         >>> import inspect
         >>> sig = inspect.signature(list_resource_templates)
@@ -1870,6 +1979,12 @@ async def list_resource_templates() -> List[Dict[str, Any]]:
     """
     # Extract filtering parameters from user context (same pattern as list_resources)
     server_id, _, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude resources.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "resources.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
+
     user_email = user_context.get("email") if user_context else None
     token_teams = user_context.get("teams") if user_context else None
     is_admin = user_context.get("is_admin", False) if user_context else False
@@ -1898,6 +2013,7 @@ async def list_resource_templates() -> List[Dict[str, Any]]:
                     db,
                     user_email=user_email,
                     token_teams=token_teams,
+                    server_id=server_id,
                 )
                 return [template.model_dump(by_alias=True) for template in resource_templates]
             except Exception as e:
@@ -1919,14 +2035,14 @@ async def set_logging_level(level: types.LoggingLevel) -> types.EmptyResult:
     Returns:
         types.EmptyResult: An empty result indicating success.
 
-    Raises:
-        PermissionError: If the caller lacks ``admin.system_config`` permission.
-
     Examples:
         >>> import inspect
         >>> sig = inspect.signature(set_logging_level)
         >>> list(sig.parameters.keys())
         ['level']
+
+    Raises:
+        PermissionError: If the user does not have permission to set the logging level.
     """
     server_id, _, user_context = await _get_request_context_or_default()
 
@@ -1940,12 +2056,16 @@ async def set_logging_level(level: types.LoggingLevel) -> types.EmptyResult:
         await _check_server_oauth_enforcement(server_id, user_context)
 
     if _should_enforce_streamable_rbac(user_context):
+        # Layer 1: Token scope cap
+        if not _check_scoped_permission(user_context, "admin.system_config"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
+        # Layer 2: RBAC check
         has_admin_permission = await _check_streamable_permission(
             user_context=user_context,
             permission="admin.system_config",
         )
         if not has_admin_permission:
-            raise PermissionError("Insufficient permissions. Required: admin.system_config")
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     try:
         # Convert MCP logging level to our LogLevel enum
@@ -1992,11 +2112,17 @@ async def complete(
         MCP-compliant completion fields.
 
     Raises:
+        PermissionError: If the caller lacks ``tools.read`` permission.
         Exception: If completion handling fails internally. The method
             logs the exception and returns an empty completion structure.
     """
     # Derive caller visibility scope from the current request context.
     server_id, _, user_context = await _get_request_context_or_default()
+
+    # Token scope cap: deny early if scoped permissions exclude tools.read
+    if _should_enforce_streamable_rbac(user_context):
+        if not _check_scoped_permission(user_context, "tools.read"):
+            raise PermissionError(_ACCESS_DENIED_MSG)
 
     # Enforce per-server OAuth requirement in permissive mode (defense-in-depth).
     # When mcp_require_auth=True, the middleware already guarantees authentication.
@@ -2233,13 +2359,15 @@ class SessionManagerWrapper:
         # This mirrors /servers/{id}/sse and /servers/{id}/message guards.
         user_context = user_context_var.get()
         if match and _should_enforce_streamable_rbac(user_context):
+            _is_session = user_context.get("token_use") == "session" if user_context else False
             has_server_access = await _check_streamable_permission(
                 user_context=user_context,
                 permission="servers.use",
+                check_any_team=_is_session,
             )
             if not has_server_access:
                 response = ORJSONResponse(
-                    {"detail": "Insufficient permissions. Required: servers.use"},
+                    {"detail": _ACCESS_DENIED_MSG},
                     status_code=HTTP_403_FORBIDDEN,
                 )
                 await response(scope, receive, send)
@@ -2549,6 +2677,16 @@ class SessionManagerWrapper:
                         captured_session_id = header_value
                         break
             await send(message)
+
+        # Propagate middleware-resolved context via ASGI scope so that MCP
+        # handlers can retrieve it even when ContextVars are lost (the SDK's
+        # task group was created at startup, so spawned handler tasks inherit
+        # the startup context rather than the per-request context).
+        scope[_MCPGATEWAY_CONTEXT_KEY] = {
+            "server_id": server_id_var.get(),
+            "request_headers": headers,
+            "user_context": user_context,
+        }
 
         try:
             await self.session_manager.handle_request(scope, receive, send_with_capture)
@@ -2886,14 +3024,19 @@ class _StreamableHttpAuthHandler:
                         # Cache positive result
                         auth_cache.set_team_membership_valid_sync(user_email, final_teams, True)
 
-            user_context_var.set(
-                {
-                    "email": user_email,
-                    "teams": final_teams,
-                    "is_authenticated": True,
-                    "is_admin": is_admin,
-                }
-            )
+            auth_user_ctx: dict[str, Any] = {
+                "email": user_email,
+                "teams": final_teams,
+                "is_authenticated": True,
+                "is_admin": is_admin,
+                "token_use": token_use,  # propagated for downstream RBAC (check_any_team)
+            }
+            # Extract scoped permissions from JWT for per-method enforcement
+            jwt_scopes = user_payload.get("scopes") or {}
+            jwt_scoped_perms = jwt_scopes.get("permissions") or [] if isinstance(jwt_scopes, dict) else []
+            if jwt_scoped_perms:
+                auth_user_ctx["scoped_permissions"] = jwt_scoped_perms
+            user_context_var.set(auth_user_ctx)
         except HTTPException:
             # JWT verification failed (expired, malformed, bad signature, etc.)
             return await self._send_error(detail="Invalid authentication credentials", headers={"WWW-Authenticate": "Bearer"})
